@@ -1,37 +1,97 @@
 #!/bin/bash
+set -euo pipefail
 
-# Farben für die Ausgabe
-GREEN='\033[0;32m'
-NC='\033[0m'
+DB_USER="admin"
+DB_PASSWORD="Login.01"
+DB_NAME="kunden_db"
+APP_DIR="$HOME/Kunden_App"
+PORT=3000
 
-echo -e "${GREEN}>>> Update System und installiere Abhängigkeiten...${NC}"
-sudo apt update && sudo apt upgrade -y
-sudo apt install -y curl build-essential git
+echo ">>> System wird aktualisiert..."
+sudo apt update -y
+sudo apt install -y curl build-essential git postgresql postgresql-contrib
 
-# 1. PostgreSQL Installation
-echo -e "${GREEN}>>> Installiere PostgreSQL...${NC}"
-sudo apt install -y postgresql postgresql-contrib
+echo ">>> Prüfe PostgreSQL Installation..."
 
-# Datenbank und User einrichten
-echo -e "${GREEN}>>> Konfiguriere Datenbank...${NC}"
-sudo -u postgres psql -c "CREATE DATABASE kunden_db;"
-sudo -u postgres psql -c "CREATE USER admin WITH PASSWORD 'Login.01';"
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE kunden_db TO admin;"
-sudo -u postgres psql -d kunden_db -c "CREATE TABLE IF NOT EXISTS kunden (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255), vorname VARCHAR(255), firma VARCHAR(255), adresse VARCHAR(255), hausnummer INT, email VARCHAR(255), telefonnummer VARCHAR(20));"
-sudo -u postgres psql -d kunden_db -c "INSERT INTO kunden (name, vorname, firma, adresse, hausnummer, email, telefonnummer) VALUES ('Mustermann', 'Max', 'Firma A', 'Musterstraße', 123, 'max@mariadb.win', '+41 76 123 45 67'), ('Musterfrau', 'Erika', 'Firma B', 'Musterstraße', 456, 'erika@mariadb.win', '+41 76 987 65 43');"
+# Falls kein Cluster existiert → erstellen
+if ! sudo pg_lsclusters | grep -q main; then
+  echo ">>> Kein PostgreSQL-Cluster gefunden – wird erstellt..."
+  sudo pg_createcluster 17 main
+fi
 
-# 2. Node.js Installation (Version 20 LTS)
-echo -e "${GREEN}>>> Installiere Node.js 20...${NC}"
-curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-sudo apt install -y nodejs
+echo ">>> PostgreSQL wird gestartet..."
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
 
-# 3. Web-Applikation erstellen
-echo -e "${GREEN}>>> Erstelle Web-App-Verzeichnis...${NC}"
-mkdir -p ~/Kunden_App
-cd ~/Kunden_App
+sleep 2
 
-# package.json erstellen
-cat <<EOF > package.json
+if ! sudo systemctl is-active --quiet postgresql; then
+  echo "FEHLER: PostgreSQL konnte nicht gestartet werden."
+  exit 1
+fi
+
+echo ">>> PostgreSQL läuft."
+
+# Rolle erstellen falls nicht vorhanden
+if sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname = '$DB_USER'" | grep -q 1; then
+  echo ">>> Rolle existiert bereits."
+else
+  echo ">>> Rolle wird erstellt..."
+  sudo -u postgres psql -c "CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';"
+fi
+
+# Datenbank erstellen falls nicht vorhanden
+if sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1; then
+  echo ">>> Datenbank existiert bereits."
+else
+  echo ">>> Datenbank wird erstellt..."
+  sudo -u postgres createdb -O $DB_USER $DB_NAME
+fi
+
+echo ">>> Tabelle wird erstellt..."
+
+sudo -u postgres psql -d $DB_NAME <<EOF
+SET SESSION AUTHORIZATION '$DB_USER';
+
+CREATE TABLE IF NOT EXISTS kunden (
+  id SERIAL PRIMARY KEY,
+  name VARCHAR(255),
+  vorname VARCHAR(255),
+  firma VARCHAR(255),
+  adresse VARCHAR(255),
+  hausnummer INT,
+  email VARCHAR(255) UNIQUE,
+  telefonnummer VARCHAR(20)
+);
+
+INSERT INTO kunden (name, vorname, firma, adresse, hausnummer, email, telefonnummer)
+VALUES
+('Mustermann', 'Max', 'Firma A', 'Musterstraße', 123, 'max@example.com', '+41 76 123 45 67'),
+('Musterfrau', 'Erika', 'Firma B', 'Musterstraße', 456, 'erika@example.com', '+41 76 987 65 43')
+ON CONFLICT (email) DO NOTHING;
+EOF
+
+echo ">>> Rechte werden gesetzt..."
+
+sudo -u postgres psql -d $DB_NAME <<EOF
+ALTER SCHEMA public OWNER TO $DB_USER;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
+EOF
+
+echo ">>> Node.js wird installiert falls notwendig..."
+
+if ! command -v node &> /dev/null; then
+  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  sudo apt install -y nodejs
+fi
+
+echo ">>> Anwendung wird eingerichtet..."
+
+mkdir -p $APP_DIR
+cd $APP_DIR
+
+cat > package.json <<EOF
 {
   "name": "kunden_app",
   "version": "1.0.0",
@@ -43,13 +103,12 @@ cat <<EOF > package.json
 }
 EOF
 
-# Node-Pakete installieren
-npm install
+npm install --silent
 
-# index.js erstellen (Das Backend)
-cat <<EOF > index.js
+cat > index.js <<'EOF'
 const express = require('express');
 const { Pool } = require('pg');
+
 const app = express();
 const port = 3000;
 
@@ -63,23 +122,61 @@ const pool = new Pool({
 
 app.get('/', async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM kunden');
-    let html = '<h1>Kundendatenbank</h1><ul>';
-    result.rows.forEach(kunde => {
-      html += \`<li>\${kunde.name} - \${kunde.email}</li>\`;
-    });
-    html += '</ul>';
+    const result = await pool.query('SELECT * FROM kunden ORDER BY id ASC');
+    const rows = result.rows;
+
+    const html = `
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<title>Kundendatenbank</title>
+<style>
+body { font-family: Arial; margin: 40px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ccc; padding: 10px; }
+th { background: #f4f4f4; }
+</style>
+</head>
+<body>
+<h1>Kundenliste</h1>
+<table>
+<tr>
+<th>ID</th><th>Name</th><th>Vorname</th><th>Firma</th><th>Adresse</th><th>Email</th><th>Telefon</th>
+</tr>
+${rows.map(k => `
+<tr>
+<td>${k.id}</td>
+<td>${k.name}</td>
+<td>${k.vorname}</td>
+<td>${k.firma}</td>
+<td>${k.adresse || ''}${k.hausnummer ? ' ' + k.hausnummer : ''}</td>
+<td>${k.email}</td>
+<td>${k.telefonnummer}</td>
+</tr>`).join('')}
+</table>
+</body>
+</html>`;
     res.send(html);
   } catch (err) {
-    console.error(err);
-    res.status(500).send('Datenbankfehler');
+    res.status(500).send('Datenbankfehler: ' + err.message);
   }
 });
 
 app.listen(port, () => {
-  console.log(\`Server läuft auf http://localhost:\${port}\`);
+  console.log("SERVER GESTARTET: http://localhost:3000");
 });
 EOF
 
-echo -e "${GREEN}>>> Setup abgeschlossen!${NC}"
-echo "Starte die App mit: cd ~/mein_webprojekt && node index.js"
+pkill -f "node index.js" || true
+nohup node index.js > app.log 2>&1 &
+
+sleep 2
+
+if curl -s http://localhost:3000 > /dev/null; then
+  echo "======================================="
+  echo "ANWENDUNG LÄUFT:"
+  echo "http://localhost:3000"
+  echo "======================================="
+else
+  echo "FEHLER: Anwendung startet nicht."
+fi
