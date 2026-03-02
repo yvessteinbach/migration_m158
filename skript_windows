@@ -1,6 +1,6 @@
-# 1. Chocolatey Installation (Prüfung und Installation)
+# 1. Chocolatey Installation
 if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
-    Write-Host ">>> Chocolatey wird installiert..." -ForegroundColor Cyan
+    Write-Host ">>> Installiere Chocolatey..." -ForegroundColor Cyan
     Set-ExecutionPolicy Bypass -Scope Process -Force
     [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
     $installScript = ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
@@ -8,23 +8,57 @@ if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
     $env:Path += ";$env:ALLUSERSPROFILE\chocolatey\bin"
 }
 
-# 2. Node.js via Chocolatey
-if (!(Get-Command node -ErrorAction SilentlyContinue)) {
-    Write-Host ">>> Installiere Node.js..." -ForegroundColor Cyan
-    choco install nodejs -y
-    $env:Path += ";$env:ProgramFiles\nodejs"
-}
+# 2. MariaDB 12.1.2 & Node.js installieren
+Write-Host ">>> Installiere MariaDB 12.1.2 und Node.js..." -ForegroundColor Cyan
+choco install nodejs -y
+# Wir versuchen die spezifische Version zu erzwingen
+choco install mariadb --version 12.1.2 -y --params '/Password:Login.01'
 
-# 3. Projektverzeichnis vorbereiten
+# Pfad zur MariaDB-Binärdatei für die aktuelle Sitzung
+$env:Path += ";C:\Program Files\MariaDB 12.1\bin"
+
+# 3. MariaDB Dienst starten und Datenbank konfigurieren
+Write-Host ">>> Konfiguriere MariaDB Datenbank..." -ForegroundColor Cyan
+Start-Service -Name "MariaDB" -ErrorAction SilentlyContinue
+
+# Warte kurz, bis der Dienst bereit ist
+Start-Sleep -s 5
+
+# SQL-Befehle zur Einrichtung (Wir nutzen das Root-Passwort von oben)
+$sqlSetup = @"
+CREATE DATABASE IF NOT EXISTS kunden_db;
+CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'Login.01';
+GRANT ALL PRIVILEGES ON kunden_db.* TO 'admin'@'localhost';
+USE kunden_db;
+CREATE TABLE IF NOT EXISTS kunden (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255),
+    vorname VARCHAR(255),
+    firma VARCHAR(255),
+    adresse VARCHAR(255),
+    hausnummer INT,
+    email VARCHAR(255),
+    telefonnummer VARCHAR(20)
+);
+INSERT INTO kunden (name, vorname, firma, adresse, hausnummer, email, telefonnummer) 
+SELECT * FROM (SELECT 'Mustermann', 'Max', 'Firma A', 'Musterstraße', 123, 'max@mariadb.win', '+41 76 123 45 67') AS tmp
+WHERE NOT EXISTS (SELECT name FROM kunden WHERE email = 'max@mariadb.win') LIMIT 1;
+FLUSH PRIVILEGES;
+"@
+
+# Ausführen der SQL-Befehle als Root
+& "mysql.exe" -u root --password=Login.01 -e $sqlSetup
+
+# 4. Web-App Setup
 $projectPath = "$HOME\Kunden_App"
 if (!(Test-Path $projectPath)) { New-Item -ItemType Directory -Path $projectPath }
 Set-Location $projectPath
 
-Write-Host ">>> Installiere App-Abhängigkeiten (Express & MariaDB)..." -ForegroundColor Cyan
+Write-Host ">>> Erstelle Web-App..." -ForegroundColor Cyan
 if (!(Test-Path "package.json")) { npm init -y }
 npm install express mariadb --loglevel error
 
-# 4. Erstellung der index.js mit Auto-Table-Creation
+# index.js erstellen
 @'
 const express = require('express');
 const mariadb = require('mariadb');
@@ -34,35 +68,10 @@ const port = 3000;
 const pool = mariadb.createPool({
      host: 'localhost', 
      user: 'admin',
-     password: 'Login.01', 
+     password: 'Login.01',
      database: 'kunden_db',
      connectionLimit: 5
 });
-
-// Initialisierungs-Funktion für die Datenbank
-async function initDb() {
-    let conn;
-    try {
-        conn = await pool.getConnection();
-        await conn.query(`
-            CREATE TABLE IF NOT EXISTS kunden (
-                id INT AUTO_INCREMENT PRIMARY KEY,
-                name VARCHAR(100),
-                email VARCHAR(100)
-            )
-        `);
-        // Testdaten einfügen, falls Tabelle leer
-        const res = await conn.query("SELECT COUNT(*) as count FROM kunden");
-        if (res[0].count === 0n) {
-            await conn.query("INSERT INTO kunden (name, email) VALUES ('Max Mustermann', 'max@test.de'), ('Erika Musterfrau', 'erika@test.de')");
-            console.log(">>> Testdaten wurden angelegt.");
-        }
-    } catch (err) {
-        console.error("Datenbank-Initialisierung fehlgeschlagen:", err.message);
-    } finally {
-        if (conn) conn.release();
-    }
-}
 
 app.get('/', async (req, res) => {
     let conn;
@@ -71,18 +80,20 @@ app.get('/', async (req, res) => {
         const rows = await conn.query("SELECT * FROM kunden");
         let html = `
             <style>
-                body { font-family: 'Segoe UI', sans-serif; padding: 50px; background-color: #f0f2f5; }
-                .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 800px; margin: auto; }
-                h1 { color: #1a73e8; border-bottom: 2px solid #e8f0fe; padding-bottom: 10px; }
+                body { font-family: 'Segoe UI', sans-serif; padding: 40px; background: #f4f7f6; }
+                .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
                 table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
-                th { background-color: #f8f9fa; color: #5f6368; }
+                th, td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
+                th { background-color: #0078d4; color: white; }
             </style>
-            <div class="container">
-                <h1>Windows Server: MariaDB Kundendaten</h1>
-                <table><tr><th>ID</th><th>Name</th><th>Email</th></tr>
+            <div class="card">
+                <h1>Kundendatenbank (MariaDB 12.1.2)</h1>
+                <table>
+                    <tr><th>Name</th><th>Firma</th><th>Email</th><th>Telefon</th></tr>
         `;
-        rows.forEach(k => { html += `<tr><td>${k.id}</td><td>${k.name}</td><td>${k.email}</td></tr>`; });
+        rows.forEach(k => {
+            html += `<tr><td>${k.name}, ${k.vorname}</td><td>${k.firma}</td><td>${k.email}</td><td>${k.telefonnummer}</td></tr>`;
+        });
         html += '</table></div>';
         res.send(html);
     } catch (err) {
@@ -92,16 +103,13 @@ app.get('/', async (req, res) => {
     }
 });
 
-app.listen(port, async () => {
-    await initDb();
-    console.log(`\x1b[32m>>> Webapp erfolgreich gestartet!\x1b[0m`);
-    console.log(`\x1b[36m>>> Adresse: http://localhost:${port}\x1b[0m`);
+app.listen(port, () => {
+    console.log(`>>> Server läuft auf http://localhost:${port}`);
 });
 '@ | Out-File -FilePath index.js -Encoding utf8
 
-# 5. Firewall-Port öffnen
+# 5. Firewall & Start
 New-NetFirewallRule -DisplayName "NodeJS WebApp Port 3000" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow -ErrorAction SilentlyContinue
 
-# 6. APP STARTEN
-Write-Host ">>> Starte Web-Applikation..." -ForegroundColor Green
+Write-Host ">>> Alles installiert und konfiguriert. Starte App..." -ForegroundColor Green
 node index.js
