@@ -1,0 +1,107 @@
+# 1. Chocolatey Installation (Prüfung und Installation)
+if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+    Write-Host ">>> Chocolatey wird installiert..." -ForegroundColor Cyan
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+    $installScript = ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+    Invoke-Expression $installScript
+    $env:Path += ";$env:ALLUSERSPROFILE\chocolatey\bin"
+}
+
+# 2. Node.js via Chocolatey
+if (!(Get-Command node -ErrorAction SilentlyContinue)) {
+    Write-Host ">>> Installiere Node.js..." -ForegroundColor Cyan
+    choco install nodejs -y
+    $env:Path += ";$env:ProgramFiles\nodejs"
+}
+
+# 3. Projektverzeichnis vorbereiten
+$projectPath = "$HOME\Kunden_App"
+if (!(Test-Path $projectPath)) { New-Item -ItemType Directory -Path $projectPath }
+Set-Location $projectPath
+
+Write-Host ">>> Installiere App-Abhängigkeiten (Express & MariaDB)..." -ForegroundColor Cyan
+if (!(Test-Path "package.json")) { npm init -y }
+npm install express mariadb --loglevel error
+
+# 4. Erstellung der index.js mit Auto-Table-Creation
+@'
+const express = require('express');
+const mariadb = require('mariadb');
+const app = express();
+const port = 3000;
+
+const pool = mariadb.createPool({
+     host: 'localhost', 
+     user: 'admin',
+     password: 'Login.01', 
+     database: 'kunden_db',
+     connectionLimit: 5
+});
+
+// Initialisierungs-Funktion für die Datenbank
+async function initDb() {
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        await conn.query(`
+            CREATE TABLE IF NOT EXISTS kunden (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(100),
+                email VARCHAR(100)
+            )
+        `);
+        // Testdaten einfügen, falls Tabelle leer
+        const res = await conn.query("SELECT COUNT(*) as count FROM kunden");
+        if (res[0].count === 0n) {
+            await conn.query("INSERT INTO kunden (name, email) VALUES ('Max Mustermann', 'max@test.de'), ('Erika Musterfrau', 'erika@test.de')");
+            console.log(">>> Testdaten wurden angelegt.");
+        }
+    } catch (err) {
+        console.error("Datenbank-Initialisierung fehlgeschlagen:", err.message);
+    } finally {
+        if (conn) conn.release();
+    }
+}
+
+app.get('/', async (req, res) => {
+    let conn;
+    try {
+        conn = await pool.getConnection();
+        const rows = await conn.query("SELECT * FROM kunden");
+        let html = `
+            <style>
+                body { font-family: 'Segoe UI', sans-serif; padding: 50px; background-color: #f0f2f5; }
+                .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 800px; margin: auto; }
+                h1 { color: #1a73e8; border-bottom: 2px solid #e8f0fe; padding-bottom: 10px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                th, td { text-align: left; padding: 12px; border-bottom: 1px solid #eee; }
+                th { background-color: #f8f9fa; color: #5f6368; }
+            </style>
+            <div class="container">
+                <h1>Windows Server: MariaDB Kundendaten</h1>
+                <table><tr><th>ID</th><th>Name</th><th>Email</th></tr>
+        `;
+        rows.forEach(k => { html += `<tr><td>${k.id}</td><td>${k.name}</td><td>${k.email}</td></tr>`; });
+        html += '</table></div>';
+        res.send(html);
+    } catch (err) {
+        res.status(500).send("Fehler: " + err.message);
+    } finally {
+        if (conn) conn.release();
+    }
+});
+
+app.listen(port, async () => {
+    await initDb();
+    console.log(`\x1b[32m>>> Webapp erfolgreich gestartet!\x1b[0m`);
+    console.log(`\x1b[36m>>> Adresse: http://localhost:${port}\x1b[0m`);
+});
+'@ | Out-File -FilePath index.js -Encoding utf8
+
+# 5. Firewall-Port öffnen
+New-NetFirewallRule -DisplayName "NodeJS WebApp Port 3000" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow -ErrorAction SilentlyContinue
+
+# 6. APP STARTEN
+Write-Host ">>> Starte Web-Applikation..." -ForegroundColor Green
+node index.js
