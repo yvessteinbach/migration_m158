@@ -15,7 +15,7 @@ sudo apt install -y postgresql postgresql-contrib
 # Datenbank und User einrichten
 echo -e "${GREEN}>>> Konfiguriere Datenbank...${NC}"
 sudo -u postgres psql -c "CREATE DATABASE kunden_db;"
-sudo -u postgres psql -c "CREATE USER admin WITH PASSWORD 'passwort123';"
+sudo -u postgres psql -c "CREATE USER admin WITH PASSWORD 'Login.01';"
 sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE kunden_db TO admin;"
 sudo -u postgres psql -d kunden_db -c "CREATE TABLE IF NOT EXISTS kunden (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255), vorname VARCHAR(255), firma VARCHAR(255), adresse VARCHAR(255), hausnummer INT, email VARCHAR(255), telefonnummer VARCHAR(20));"
 sudo -u postgres psql -d kunden_db -c "INSERT INTO kunden (name, vorname, firma, adresse, hausnummer, email, telefonnummer) VALUES ('Mustermann', 'Max', 'Firma A', 'Musterstraße', 123, 'max@mariadb.win', '+41 76 123 45 67'), ('Musterfrau', 'Erika', 'Firma B', 'Musterstraße', 456, 'erika@mariadb.win', '+41 76 987 65 43');"
