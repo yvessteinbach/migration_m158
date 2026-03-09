@@ -63,12 +63,6 @@ CREATE TABLE IF NOT EXISTS kunden (
   email VARCHAR(255) UNIQUE,
   telefonnummer VARCHAR(20)
 );
-
-INSERT INTO kunden (name, vorname, firma, adresse, hausnummer, email, telefonnummer)
-VALUES
-('Mustermann', 'Max', 'Firma A', 'Musterstraße', 123, 'max@example.com', '+41 76 123 45 67'),
-('Musterfrau', 'Erika', 'Firma B', 'Musterstraße', 456, 'erika@example.com', '+41 76 987 65 43')
-ON CONFLICT (email) DO NOTHING;
 EOF
 
 echo ">>> Rechte werden gesetzt..."
