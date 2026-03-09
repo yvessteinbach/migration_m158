@@ -1,0 +1,1 @@
+pgloader mysql://root:password@windows_ip/kunden_db postgresql://admin:Login.01@localhost/kunden_db
