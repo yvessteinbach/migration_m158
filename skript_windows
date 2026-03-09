@@ -1,239 +1,147 @@
 # ============================================================
-#  setup_kunden_app.ps1  —  Version corrigée
-#  Prérequis : lancer en tant qu'Administrateur
+# Setup-Skript: MariaDB + Node.js Kunden-App
 # ============================================================
 
-#Requires -RunAsAdministrator
-$ErrorActionPreference = "Stop"
-
-# ────────────────────────────────────────────────────────────
-# 0. Fonctions utilitaires
-# ────────────────────────────────────────────────────────────
-function Refresh-Path {
-    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") +
-                ";" +
-                [System.Environment]::GetEnvironmentVariable("Path","User")
-}
-
-function Wait-ForService {
-    param([string]$Name, [int]$TimeoutSec = 60)
-    $sw = [Diagnostics.Stopwatch]::StartNew()
-    while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec) {
-        $svc = Get-Service | Where-Object { $_.Name -like $Name } | Select-Object -First 1
-        if ($svc -and $svc.Status -eq "Running") { return $svc.Name }
-        Start-Sleep -Seconds 2
-    }
-    throw "Le service '$Name' n'a pas démarré dans les $TimeoutSec secondes."
-}
-
-# ────────────────────────────────────────────────────────────
-# 1. Installation de Chocolatey (si absent)
-# ────────────────────────────────────────────────────────────
+# 1. Chocolatey Installation
 if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
-    Write-Host ">>> Installation de Chocolatey..." -ForegroundColor Cyan
+    Write-Host ">>> Installiere Chocolatey..." -ForegroundColor Cyan
     Set-ExecutionPolicy Bypass -Scope Process -Force
-    [System.Net.ServicePointManager]::SecurityProtocol =
-        [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-    $installScript = (New-Object System.Net.WebClient).DownloadString(
-        'https://community.chocolatey.org/install.ps1')
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+    $installScript = ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
     Invoke-Expression $installScript
-
-    # Recharger le PATH immédiatement après Chocolatey
-    Refresh-Path
+    $env:Path += ";$env:ALLUSERSPROFILE\chocolatey\bin"
 }
 
-# ────────────────────────────────────────────────────────────
-# 2. Installation de Node.js et MariaDB
-# ────────────────────────────────────────────────────────────
-Write-Host ">>> Installation de Node.js..." -ForegroundColor Cyan
-choco install nodejs -y --no-progress
+# 2. Node.js & MariaDB installieren
+Write-Host ">>> Installiere Node.js und MariaDB..." -ForegroundColor Cyan
+choco install nodejs -y
+choco install mariadb -y --params '/Password:Login.01'
 
-Write-Host ">>> Installation de MariaDB..." -ForegroundColor Cyan
-choco install mariadb -y --no-progress --params "'/Password:Login.01'"
+# PATH für aktuelle Sitzung aktualisieren
+$env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
-# Recharger le PATH après les installations
-Refresh-Path
-
-# ────────────────────────────────────────────────────────────
-# 3. Vérification de mysql.exe
-# ────────────────────────────────────────────────────────────
-$mysqlPath = Get-ChildItem -Path "C:\Program Files\MariaDB*" `
-             -Filter "mysql.exe" -Recurse -ErrorAction SilentlyContinue |
-             Select-Object -ExpandProperty FullName -First 1
-
-if (!$mysqlPath) {
-    # Deuxième tentative dans Program Files (x86)
-    $mysqlPath = Get-ChildItem -Path "C:\Program Files (x86)\MariaDB*" `
-                 -Filter "mysql.exe" -Recurse -ErrorAction SilentlyContinue |
-                 Select-Object -ExpandProperty FullName -First 1
-}
-
-if (!$mysqlPath) {
-    Write-Host "ERREUR : mysql.exe introuvable. Vérifiez l'installation de MariaDB." -ForegroundColor Red
+# 3. MariaDB-Pfad ermitteln
+$mysqlExe = Get-ChildItem "C:\Program Files\MariaDB*\bin\mysql.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+if (!$mysqlExe) {
+    Write-Host "MariaDB-Binary nicht gefunden! Installation fehlgeschlagen." -ForegroundColor Red
     exit 1
 }
-Write-Host "mysql.exe trouvé : $mysqlPath" -ForegroundColor Green
+$mysqlPath = $mysqlExe.FullName
+Write-Host ">>> MariaDB gefunden: $mysqlPath" -ForegroundColor Green
 
-# ────────────────────────────────────────────────────────────
-# 4. Démarrage du service MariaDB
-# ────────────────────────────────────────────────────────────
-Write-Host ">>> Démarrage du service MariaDB..." -ForegroundColor Cyan
-
-# Cherche le service avec wildcard puis démarre par son nom exact
-$mariaService = Get-Service | Where-Object { $_.Name -like "MariaDB*" } | Select-Object -First 1
-
+# 4. MariaDB Dienst prüfen und starten
+$mariaService = Get-Service -Name "MariaDB" -ErrorAction SilentlyContinue
 if (!$mariaService) {
-    Write-Host "ERREUR : service MariaDB introuvable." -ForegroundColor Red
+    Write-Host "MariaDB-Dienst nicht gefunden! Installation fehlgeschlagen." -ForegroundColor Red
     exit 1
 }
 
-if ($mariaService.Status -ne "Running") {
-    Start-Service -Name $mariaService.Name
-}
+Write-Host ">>> Starte MariaDB-Dienst..." -ForegroundColor Cyan
+Start-Service -Name "MariaDB" -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 5
 
-# Attendre que le service soit réellement opérationnel
-$svcName = Wait-ForService -Name "MariaDB*" -TimeoutSec 60
-Write-Host "Service '$svcName' démarré avec succès." -ForegroundColor Green
-
-# Pause supplémentaire pour que MariaDB accepte les connexions
-Start-Sleep -Seconds 3
-
-# ────────────────────────────────────────────────────────────
-# 5. Configuration de la base de données
-# ────────────────────────────────────────────────────────────
-Write-Host ">>> Configuration de la base de données MariaDB..." -ForegroundColor Cyan
-
+# 5. SQL-Setup definieren (NACH der Installation, VOR der Ausführung)
 $sqlSetup = @"
-CREATE DATABASE IF NOT EXISTS kunden_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'admin'@'127.0.0.1' IDENTIFIED BY 'Login.01';
-GRANT ALL PRIVILEGES ON kunden_db.* TO 'admin'@'127.0.0.1';
-FLUSH PRIVILEGES;
-
+CREATE DATABASE IF NOT EXISTS kunden_db;
+CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'Login.01';
+GRANT ALL PRIVILEGES ON kunden_db.* TO 'admin'@'localhost';
 USE kunden_db;
-
 CREATE TABLE IF NOT EXISTS kunden (
-    id            INT AUTO_INCREMENT PRIMARY KEY,
-    name          VARCHAR(255),
-    vorname       VARCHAR(255),
-    firma         VARCHAR(255),
-    adresse       VARCHAR(255),
-    hausnummer    VARCHAR(10),
-    email         VARCHAR(255),
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255),
+    vorname VARCHAR(255),
+    firma VARCHAR(255),
+    adresse VARCHAR(255),
+    hausnummer VARCHAR(10),
+    email VARCHAR(255),
     telefonnummer VARCHAR(20)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
+);
 INSERT INTO kunden (name, vorname, firma, adresse, hausnummer, email, telefonnummer)
 SELECT * FROM (
-    SELECT 'Müller','Lukas','AlpenTech AG','Bahnhofstrasse','12','lukas.mueller@alpentech.ch','+41 79 234 11 01'
-    UNION ALL SELECT 'Meier','Sophie','SwissData GmbH','Seestrasse','45','sophie.meier@swissdata.ch','+41 78 234 11 02'
-    UNION ALL SELECT 'Schmid','David','Helvetic Solutions','Dorfstrasse','7','david.schmid@helvetic.ch','+41 76 234 11 03'
-    UNION ALL SELECT 'Keller','Anna','Keller Consulting','Hauptstrasse','88','anna.keller@kellerconsult.ch','+41 79 234 11 04'
-    UNION ALL SELECT 'Weber','Marco','Weber Bau AG','Industriestrasse','19','marco.weber@weberbau.ch','+41 78 234 11 05'
-    UNION ALL SELECT 'Huber','Nina','Huber Design','Marktgasse','3','nina.huber@huberdesign.ch','+41 77 234 11 06'
-    UNION ALL SELECT 'Frei','Daniel','Frei Logistics','Poststrasse','51','daniel.frei@freilog.ch','+41 79 234 11 07'
-    UNION ALL SELECT 'Steiner','Laura','Steiner Marketing','Bergstrasse','14','laura.steiner@steinermarketing.ch','+41 78 234 11 08'
-    UNION ALL SELECT 'Brunner','Simon','Brunner IT','Schulstrasse','6','simon.brunner@brunnerit.ch','+41 76 234 11 09'
-    UNION ALL SELECT 'Baumann','Julia','Baumann Architektur','Parkweg','27','julia.baumann@baumannarch.ch','+41 79 234 11 10'
-    UNION ALL SELECT 'Gerber','Noah','Gerber Elektrotechnik','Seefeldstrasse','18','noah.gerber@gerberelektro.ch','+41 78 234 11 11'
-    UNION ALL SELECT 'Zimmermann','Lea','Zimmermann Immobilien','Rosenweg','22','lea.zimmermann@zimmerimmo.ch','+41 77 234 11 12'
-    UNION ALL SELECT 'Moser','Jan','Moser Finance','Zürcherstrasse','64','jan.moser@moserfinance.ch','+41 79 234 11 13'
-    UNION ALL SELECT 'Schneider','Eva','Schneider Treuhand','Kirchweg','9','eva.schneider@schneidertreu.ch','+41 78 234 11 14'
-    UNION ALL SELECT 'Kunz','Lena','Kunz Media','Talstrasse','41','lena.kunz@kunzmedia.ch','+41 76 234 11 15'
-    UNION ALL SELECT 'Stadelmann','Patrick','Stadelmann Bau','Wiesenstrasse','15','patrick.stadelmann@stadelbau.ch','+41 79 234 11 16'
-    UNION ALL SELECT 'Roth','Sara','Roth Consulting','Aarauerstrasse','29','sara.roth@rothconsult.ch','+41 78 234 11 17'
-    UNION ALL SELECT 'Bieri','Tim','Bieri Energie','Buchenweg','5','tim.bieri@bierienergie.ch','+41 77 234 11 18'
-    UNION ALL SELECT 'Egger','Florian','Egger Transport','Industrieweg','72','florian.egger@eggertrans.ch','+41 79 234 11 19'
-    UNION ALL SELECT 'Lutz','Clara','Lutz Design','Gartenstrasse','33','clara.lutz@lutzdesign.ch','+41 78 234 11 20'
-    UNION ALL SELECT 'Vogel','Andreas','Vogel Software','Hirschweg','4','andreas.vogel@vogelsoft.ch','+41 76 234 11 21'
-    UNION ALL SELECT 'Suter','Melanie','Suter Consulting','Rainstrasse','23','melanie.suter@suterconsult.ch','+41 79 234 11 22'
-    UNION ALL SELECT 'Arnold','Fabian','Arnold Security','Industriestrasse','54','fabian.arnold@arnoldsec.ch','+41 78 234 11 23'
-    UNION ALL SELECT 'Kälin','Joel','Kälin Holzbau','Dorfplatz','8','joel.kaelin@kaelinholz.ch','+41 77 234 11 24'
-    UNION ALL SELECT 'Studer','Laura','Studer Events','Festweg','17','laura.studer@studerevents.ch','+41 79 234 11 25'
-    UNION ALL SELECT 'Bachmann','Roman','Bachmann AG','Postgasse','39','roman.bachmann@bachmannag.ch','+41 78 234 11 26'
-    UNION ALL SELECT 'Graf','Nadine','Graf HR','Seestrasse','91','nadine.graf@grafhr.ch','+41 76 234 11 27'
-    UNION ALL SELECT 'Lehmann','Tobias','Lehmann Technik','Werkstrasse','16','tobias.lehmann@lehmanntech.ch','+41 79 234 11 28'
-    UNION ALL SELECT 'Hess','Janine','Hess Beauty','Lindenweg','11','janine.hess@hessbeauty.ch','+41 78 234 11 29'
-    UNION ALL SELECT 'Kaufmann','Marc','Kaufmann Auto','Motorenstrasse','63','marc.kaufmann@kaufauto.ch','+41 77 234 11 30'
-    UNION ALL SELECT 'Ziegler','Eva','Ziegler Mode','Marktplatz','2','eva.ziegler@zieglermode.ch','+41 79 234 11 31'
-    UNION ALL SELECT 'Bolliger','Simon','Bolliger Consulting','Weinbergstrasse','27','simon.bolliger@bolligerconsult.ch','+41 78 234 11 32'
-    UNION ALL SELECT 'Hofer','Julia','Hofer Marketing','Parkallee','34','julia.hofer@hofermarketing.ch','+41 76 234 11 33'
-    UNION ALL SELECT 'Wenger','David','Wenger Bau','Baustrasse','73','david.wenger@wengerbau.ch','+41 79 234 11 34'
-    UNION ALL SELECT 'Stucki','Lara','Stucki Design','Sonnenweg','12','lara.stucki@stuckidesign.ch','+41 78 234 11 35'
-    UNION ALL SELECT 'Nyffenegger','Pascal','Nyffenegger IT','Techpark','5','pascal.nyff@nyffit.ch','+41 77 234 11 36'
-    UNION ALL SELECT 'Gasser','Nina','Gasser Consulting','Höhenweg','44','nina.gasser@gasserconsult.ch','+41 79 234 11 37'
-    UNION ALL SELECT 'Marti','Fabio','Marti Bau AG','Werkhofstrasse','60','fabio.marti@martibau.ch','+41 78 234 11 38'
-    UNION ALL SELECT 'Bär','Lukas','Bär Immobilien','Seeblickweg','21','lukas.baer@baerimmo.ch','+41 76 234 11 39'
-    UNION ALL SELECT 'Wirth','Sara','Wirth Consulting','Talweg','7','sara.wirth@wirthconsult.ch','+41 79 234 11 40'
-    UNION ALL SELECT 'Blaser','Tom','Blaser Security','Industriepark','10','tom.blaser@blasersec.ch','+41 78 234 11 41'
-    UNION ALL SELECT 'Koller','Eva','Koller Treuhand','Hauptgasse','3','eva.koller@kollertreu.ch','+41 77 234 11 42'
-    UNION ALL SELECT 'Furrer','Jan','Furrer Transport','Logistikweg','81','jan.furrer@furrertrans.ch','+41 79 234 11 43'
-    UNION ALL SELECT 'Imhof','Lea','Imhof Design','Seestrasse','52','lea.imhof@imhofdesign.ch','+41 78 234 11 44'
-    UNION ALL SELECT 'Rieder','Paul','Rieder Bau','Bergweg','13','paul.rieder@riederbau.ch','+41 76 234 11 45'
-    UNION ALL SELECT 'Schär','Lina','Schär Marketing','Parkstrasse','29','lina.schaer@schaermarketing.ch','+41 79 234 11 46'
-    UNION ALL SELECT 'Aeschlimann','David','Aeschlimann IT','Digitalweg','6','david.aesch@aeschit.ch','+41 78 234 11 47'
-    UNION ALL SELECT 'Rüegg','Mara','Rüegg Consulting','Bahnhofplatz','1','mara.rueegg@rueeggconsult.ch','+41 77 234 11 48'
-    UNION ALL SELECT 'Lüscher','Nico','Lüscher Elektro','Elektrikerweg','9','nico.luescher@luescherelektro.ch','+41 79 234 11 49'
-    UNION ALL SELECT 'Widmer','Elena','Widmer Finance','Bankstrasse','20','elena.widmer@widmerfinance.ch','+41 78 234 11 50'
+SELECT 'Müller','Lukas','AlpenTech AG','Bahnhofstrasse','12','lukas.mueller@alpentech.ch','+41 79 234 11 01'
+UNION ALL SELECT 'Meier','Sophie','SwissData GmbH','Seestrasse','45','sophie.meier@swissdata.ch','+41 78 234 11 02'
+UNION ALL SELECT 'Schmid','David','Helvetic Solutions','Dorfstrasse','7','david.schmid@helvetic.ch','+41 76 234 11 03'
+UNION ALL SELECT 'Keller','Anna','Keller Consulting','Hauptstrasse','88','anna.keller@kellerconsult.ch','+41 79 234 11 04'
+UNION ALL SELECT 'Weber','Marco','Weber Bau AG','Industriestrasse','19','marco.weber@weberbau.ch','+41 78 234 11 05'
+UNION ALL SELECT 'Huber','Nina','Huber Design','Marktgasse','3','nina.huber@huberdesign.ch','+41 77 234 11 06'
+UNION ALL SELECT 'Frei','Daniel','Frei Logistics','Poststrasse','51','daniel.frei@freilog.ch','+41 79 234 11 07'
+UNION ALL SELECT 'Steiner','Laura','Steiner Marketing','Bergstrasse','14','laura.steiner@steinermarketing.ch','+41 78 234 11 08'
+UNION ALL SELECT 'Brunner','Simon','Brunner IT','Schulstrasse','6','simon.brunner@brunnerit.ch','+41 76 234 11 09'
+UNION ALL SELECT 'Baumann','Julia','Baumann Architektur','Parkweg','27','julia.baumann@baumannarch.ch','+41 79 234 11 10'
+UNION ALL SELECT 'Gerber','Noah','Gerber Elektrotechnik','Seefeldstrasse','18','noah.gerber@gerberelektro.ch','+41 78 234 11 11'
+UNION ALL SELECT 'Zimmermann','Lea','Zimmermann Immobilien','Rosenweg','22','lea.zimmermann@zimmerimmo.ch','+41 77 234 11 12'
+UNION ALL SELECT 'Moser','Jan','Moser Finance','Zürcherstrasse','64','jan.moser@moserfinance.ch','+41 79 234 11 13'
+UNION ALL SELECT 'Schneider','Eva','Schneider Treuhand','Kirchweg','9','eva.schneider@schneidertreu.ch','+41 78 234 11 14'
+UNION ALL SELECT 'Kunz','Lena','Kunz Media','Talstrasse','41','lena.kunz@kunzmedia.ch','+41 76 234 11 15'
+UNION ALL SELECT 'Stadelmann','Patrick','Stadelmann Bau','Wiesenstrasse','15','patrick.stadelmann@stadelbau.ch','+41 79 234 11 16'
+UNION ALL SELECT 'Roth','Sara','Roth Consulting','Aarauerstrasse','29','sara.roth@rothconsult.ch','+41 78 234 11 17'
+UNION ALL SELECT 'Bieri','Tim','Bieri Energie','Buchenweg','5','tim.bieri@bierienergie.ch','+41 77 234 11 18'
+UNION ALL SELECT 'Egger','Florian','Egger Transport','Industrieweg','72','florian.egger@eggertrans.ch','+41 79 234 11 19'
+UNION ALL SELECT 'Lutz','Clara','Lutz Design','Gartenstrasse','33','clara.lutz@lutzdesign.ch','+41 78 234 11 20'
+UNION ALL SELECT 'Vogel','Andreas','Vogel Software','Hirschweg','4','andreas.vogel@vogelsoft.ch','+41 76 234 11 21'
+UNION ALL SELECT 'Suter','Melanie','Suter Consulting','Rainstrasse','23','melanie.suter@suterconsult.ch','+41 79 234 11 22'
+UNION ALL SELECT 'Arnold','Fabian','Arnold Security','Industriestrasse','54','fabian.arnold@arnoldsec.ch','+41 78 234 11 23'
+UNION ALL SELECT 'Kälin','Joel','Kälin Holzbau','Dorfplatz','8','joel.kaelin@kaelinholz.ch','+41 77 234 11 24'
+UNION ALL SELECT 'Studer','Laura','Studer Events','Festweg','17','laura.studer@studerevents.ch','+41 79 234 11 25'
+UNION ALL SELECT 'Bachmann','Roman','Bachmann AG','Postgasse','39','roman.bachmann@bachmannag.ch','+41 78 234 11 26'
+UNION ALL SELECT 'Graf','Nadine','Graf HR','Seestrasse','91','nadine.graf@grafhr.ch','+41 76 234 11 27'
+UNION ALL SELECT 'Lehmann','Tobias','Lehmann Technik','Werkstrasse','16','tobias.lehmann@lehmanntech.ch','+41 79 234 11 28'
+UNION ALL SELECT 'Hess','Janine','Hess Beauty','Lindenweg','11','janine.hess@hessbeauty.ch','+41 78 234 11 29'
+UNION ALL SELECT 'Kaufmann','Marc','Kaufmann Auto','Motorenstrasse','63','marc.kaufmann@kaufauto.ch','+41 77 234 11 30'
+UNION ALL SELECT 'Ziegler','Eva','Ziegler Mode','Marktplatz','2','eva.ziegler@zieglermode.ch','+41 79 234 11 31'
+UNION ALL SELECT 'Bolliger','Simon','Bolliger Consulting','Weinbergstrasse','27','simon.bolliger@bolligerconsult.ch','+41 78 234 11 32'
+UNION ALL SELECT 'Hofer','Julia','Hofer Marketing','Parkallee','34','julia.hofer@hofermarketing.ch','+41 76 234 11 33'
+UNION ALL SELECT 'Wenger','David','Wenger Bau','Baustrasse','73','david.wenger@wengerbau.ch','+41 79 234 11 34'
+UNION ALL SELECT 'Stucki','Lara','Stucki Design','Sonnenweg','12','lara.stucki@stuckidesign.ch','+41 78 234 11 35'
+UNION ALL SELECT 'Nyffenegger','Pascal','Nyffenegger IT','Techpark','5','pascal.nyff@nyffit.ch','+41 77 234 11 36'
+UNION ALL SELECT 'Gasser','Nina','Gasser Consulting','Höhenweg','44','nina.gasser@gasserconsult.ch','+41 79 234 11 37'
+UNION ALL SELECT 'Marti','Fabio','Marti Bau AG','Werkhofstrasse','60','fabio.marti@martibau.ch','+41 78 234 11 38'
+UNION ALL SELECT 'Bär','Lukas','Bär Immobilien','Seeblickweg','21','lukas.baer@baerimmo.ch','+41 76 234 11 39'
+UNION ALL SELECT 'Wirth','Sara','Wirth Consulting','Talweg','7','sara.wirth@wirthconsult.ch','+41 79 234 11 40'
+UNION ALL SELECT 'Blaser','Tom','Blaser Security','Industriepark','10','tom.blaser@blasersec.ch','+41 78 234 11 41'
+UNION ALL SELECT 'Koller','Eva','Koller Treuhand','Hauptgasse','3','eva.koller@kollertreu.ch','+41 77 234 11 42'
+UNION ALL SELECT 'Furrer','Jan','Furrer Transport','Logistikweg','81','jan.furrer@furrertrans.ch','+41 79 234 11 43'
+UNION ALL SELECT 'Imhof','Lea','Imhof Design','Seestrasse','52','lea.imhof@imhofdesign.ch','+41 78 234 11 44'
+UNION ALL SELECT 'Rieder','Paul','Rieder Bau','Bergweg','13','paul.rieder@riederbau.ch','+41 76 234 11 45'
+UNION ALL SELECT 'Schär','Lina','Schär Marketing','Parkstrasse','29','lina.schaer@schaermarketing.ch','+41 79 234 11 46'
+UNION ALL SELECT 'Aeschlimann','David','Aeschlimann IT','Digitalweg','6','david.aesch@aeschit.ch','+41 78 234 11 47'
+UNION ALL SELECT 'Rüegg','Mara','Rüegg Consulting','Bahnhofplatz','1','mara.rueegg@rueeggconsult.ch','+41 77 234 11 48'
+UNION ALL SELECT 'Lüscher','Nico','Lüscher Elektro','Elektrikerweg','9','nico.luescher@luescherelektro.ch','+41 79 234 11 49'
+UNION ALL SELECT 'Widmer','Elena','Widmer Finance','Bankstrasse','20','elena.widmer@widmerfinance.ch','+41 78 234 11 50'
 ) AS tmp
 WHERE NOT EXISTS (
     SELECT 1 FROM kunden WHERE kunden.email = tmp.email
 );
+FLUSH PRIVILEGES;
 "@
 
-# Écriture dans un fichier temporaire (UTF-8 sans BOM) pour éviter
-# les problèmes d'encoding et de pipe
-$tmpSql = "$env:TEMP\kunden_setup.sql"
-[System.IO.File]::WriteAllText($tmpSql, $sqlSetup, [System.Text.UTF8Encoding]::new($false))
-
-# Exécution via redirection de fichier (plus fiable que le pipe PowerShell)
-$mysqlArgs = @("--user=root", "--password=Login.01", "--default-character-set=utf8mb4")
-& $mysqlPath @mysqlArgs | Out-Null
-Get-Content $tmpSql | & $mysqlPath @mysqlArgs
-
+# 6. SQL ausführen (mit vollem Pfad)
+Write-Host ">>> Konfiguriere MariaDB Datenbank..." -ForegroundColor Cyan
+& $mysqlPath -u root --password=Login.01 -e $sqlSetup
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERREUR : La configuration SQL a échoué (code $LASTEXITCODE)." -ForegroundColor Red
+    Write-Host "SQL-Setup fehlgeschlagen! Bitte Root-Passwort prüfen." -ForegroundColor Red
     exit 1
 }
-Write-Host "Base de données configurée avec succès." -ForegroundColor Green
+Write-Host ">>> Datenbank erfolgreich konfiguriert." -ForegroundColor Green
 
-# Nettoyage du fichier SQL temporaire
-Remove-Item $tmpSql -ErrorAction SilentlyContinue
-
-# ────────────────────────────────────────────────────────────
-# 6. Création du projet Node.js
-# ────────────────────────────────────────────────────────────
+# 7. Web-App Setup
 $projectPath = "$HOME\Kunden_App"
-if (!(Test-Path $projectPath)) {
-    New-Item -ItemType Directory -Path $projectPath | Out-Null
-}
+if (!(Test-Path $projectPath)) { New-Item -ItemType Directory -Path $projectPath | Out-Null }
 Set-Location $projectPath
 
-Write-Host ">>> Initialisation du projet Node.js..." -ForegroundColor Cyan
+Write-Host ">>> Erstelle Web-App..." -ForegroundColor Cyan
+if (!(Test-Path "package.json")) { npm init -y }
+npm install express mariadb --loglevel error
 
-if (!(Test-Path "package.json")) {
-    & npm init -y
-}
-
-& npm install express mariadb --save
-
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "ERREUR : npm install a échoué." -ForegroundColor Red
-    exit 1
-}
-
-# ────────────────────────────────────────────────────────────
-# 7. Création de index.js (UTF-8 sans BOM)
-# ────────────────────────────────────────────────────────────
-Write-Host ">>> Création de index.js..." -ForegroundColor Cyan
-
-$indexJsContent = @'
+# index.js erstellen
+@'
 const express = require('express');
 const mariadb = require('mariadb');
 const app = express();
 const port = 3000;
 
 const pool = mariadb.createPool({
-    host: '127.0.0.1',
+    host: 'localhost',
     user: 'admin',
     password: 'Login.01',
     database: 'kunden_db',
@@ -244,99 +152,40 @@ app.get('/', async (req, res) => {
     let conn;
     try {
         conn = await pool.getConnection();
-        const rows = await conn.query("SELECT * FROM kunden ORDER BY name, vorname");
-        let html = `<!DOCTYPE html>
-<html lang="de">
-<head>
-    <meta charset="UTF-8">
-    <title>Kundendatenbank</title>
-    <style>
-        body { font-family: 'Segoe UI', sans-serif; padding: 40px; background: #f4f7f6; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        h1 { color: #0078d4; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
-        th { background-color: #0078d4; color: white; }
-        tr:hover { background-color: #f1f1f1; }
-    </style>
-</head>
-<body>
-    <div class="card">
-        <h1>Kundendatenbank</h1>
-        <p>Anzahl Datensätze: ${rows.length}</p>
-        <table>
-            <thead>
-                <tr>
-                    <th>Name, Vorname</th>
-                    <th>Firma</th>
-                    <th>Adresse</th>
-                    <th>Email</th>
-                    <th>Telefon</th>
-                </tr>
-            </thead>
-            <tbody>`;
-
+        const rows = await conn.query("SELECT * FROM kunden ORDER BY name");
+        let html = `
+            <style>
+                body { font-family: 'Segoe UI', sans-serif; padding: 40px; background: #f4f7f6; }
+                .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+                th, td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
+                th { background-color: #0078d4; color: white; }
+                tr:hover { background-color: #f0f7ff; }
+            </style>
+            <div class="card">
+                <h1>Kundendatenbank</h1>
+                <table>
+                    <tr><th>Name</th><th>Firma</th><th>Email</th><th>Telefon</th></tr>
+        `;
         rows.forEach(k => {
-            html += `
-                <tr>
-                    <td>${k.name}, ${k.vorname}</td>
-                    <td>${k.firma}</td>
-                    <td>${k.adresse} ${k.hausnummer}</td>
-                    <td><a href="mailto:${k.email}">${k.email}</a></td>
-                    <td>${k.telefonnummer}</td>
-                </tr>`;
+            html += `<tr><td>${k.name}, ${k.vorname}</td><td>${k.firma}</td><td>${k.email}</td><td>${k.telefonnummer}</td></tr>`;
         });
-
-        html += `
-            </tbody>
-        </table>
-    </div>
-</body>
-</html>`;
-
+        html += '</table></div>';
         res.send(html);
     } catch (err) {
-        res.status(500).send("Datenbankfehler: " + err.message);
+        res.status(500).send("Fehler: " + err.message);
     } finally {
         if (conn) conn.release();
     }
 });
 
-app.listen(port, '0.0.0.0', () => {
+app.listen(port, () => {
     console.log(`>>> Server läuft auf http://localhost:${port}`);
 });
-'@
+'@ | Out-File -FilePath index.js -Encoding utf8
 
-# Écriture sans BOM — crucial pour Node.js
-[System.IO.File]::WriteAllText(
-    "$projectPath\index.js",
-    $indexJsContent,
-    [System.Text.UTF8Encoding]::new($false)
-)
+# 8. Firewall-Regel & App starten
+New-NetFirewallRule -DisplayName "NodeJS WebApp Port 3000" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow -ErrorAction SilentlyContinue
 
-# ────────────────────────────────────────────────────────────
-# 8. Règle de pare-feu
-# ────────────────────────────────────────────────────────────
-Write-Host ">>> Configuration du pare-feu (port 3000)..." -ForegroundColor Cyan
-$fwRule = Get-NetFirewallRule -DisplayName "NodeJS WebApp Port 3000" -ErrorAction SilentlyContinue
-if (!$fwRule) {
-    New-NetFirewallRule `
-        -DisplayName "NodeJS WebApp Port 3000" `
-        -Direction Inbound `
-        -LocalPort 3000 `
-        -Protocol TCP `
-        -Action Allow | Out-Null
-}
-
-# ────────────────────────────────────────────────────────────
-# 9. Lancement de l'application
-# ────────────────────────────────────────────────────────────
-Write-Host ""
-Write-Host "============================================================" -ForegroundColor Green
-Write-Host " Tout est installé et configuré !" -ForegroundColor Green
-Write-Host " Ouvre http://localhost:3000 dans ton navigateur." -ForegroundColor Green
-Write-Host "============================================================" -ForegroundColor Green
-Write-Host ""
-
-Set-Location $projectPath
-& node index.js
+Write-Host ">>> Alles installiert und konfiguriert. Starte App..." -ForegroundColor Green
+node index.js
