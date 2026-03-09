@@ -12,10 +12,10 @@ if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
 Write-Host ">>> Installiere MariaDB 12.1.2 und Node.js..." -ForegroundColor Cyan
 choco install nodejs -y
 # Wir versuchen die spezifische Version zu erzwingen
-choco install mariadb --version 12.1.2 -y --params '/Password:Login.01'
+choco install mariadb -y --params '/Password:Login.01'
 
 # Pfad zur MariaDB-Binärdatei für die aktuelle Sitzung
-$env:Path += ";C:\Program Files\MariaDB 12.1\bin"
+$env:Path += ";C:\Program Files\MariaDB*\bin"
 
 # 3. MariaDB Dienst starten und Datenbank konfigurieren
 Write-Host ">>> Konfiguriere MariaDB Datenbank..." -ForegroundColor Cyan
@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS kunden (
     vorname VARCHAR(255),
     firma VARCHAR(255),
     adresse VARCHAR(255),
-    hausnummer INT,
+    hausnummer VARCHAR(10),
     email VARCHAR(255),
     telefonnummer VARCHAR(20)
 );
