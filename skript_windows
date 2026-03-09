@@ -124,7 +124,7 @@ const app = express();
 const port = 3000;
 
 const pool = mariadb.createPool({
-     host: 'localhost', 
+     host: '127.0.0.1', 
      user: 'admin',
      password: 'Login.01',
      database: 'kunden_db',
