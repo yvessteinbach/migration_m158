@@ -40,9 +40,62 @@ CREATE TABLE IF NOT EXISTS kunden (
     email VARCHAR(255),
     telefonnummer VARCHAR(20)
 );
-INSERT INTO kunden (name, vorname, firma, adresse, hausnummer, email, telefonnummer) 
-SELECT * FROM (SELECT 'Mustermann', 'Max', 'Firma A', 'Musterstraße', 123, 'max@mariadb.win', '+41 76 123 45 67') AS tmp
-WHERE NOT EXISTS (SELECT name FROM kunden WHERE email = 'max@mariadb.win') LIMIT 1;
+INSERT INTO kunden (name, vorname, firma, adresse, hausnummer, email, telefonnummer)
+SELECT * FROM (
+SELECT 'Müller','Lukas','AlpenTech AG','Bahnhofstrasse',12,'lukas.mueller@alpentech.ch','+41 79 234 11 01'
+UNION ALL SELECT 'Meier','Sophie','SwissData GmbH','Seestrasse',45,'sophie.meier@swissdata.ch','+41 78 234 11 02'
+UNION ALL SELECT 'Schmid','David','Helvetic Solutions','Dorfstrasse',7,'david.schmid@helvetic.ch','+41 76 234 11 03'
+UNION ALL SELECT 'Keller','Anna','Keller Consulting','Hauptstrasse',88,'anna.keller@kellerconsult.ch','+41 79 234 11 04'
+UNION ALL SELECT 'Weber','Marco','Weber Bau AG','Industriestrasse',19,'marco.weber@weberbau.ch','+41 78 234 11 05'
+UNION ALL SELECT 'Huber','Nina','Huber Design','Marktgasse',3,'nina.huber@huberdesign.ch','+41 77 234 11 06'
+UNION ALL SELECT 'Frei','Daniel','Frei Logistics','Poststrasse',51,'daniel.frei@freilog.ch','+41 79 234 11 07'
+UNION ALL SELECT 'Steiner','Laura','Steiner Marketing','Bergstrasse',14,'laura.steiner@steinermarketing.ch','+41 78 234 11 08'
+UNION ALL SELECT 'Brunner','Simon','Brunner IT','Schulstrasse',6,'simon.brunner@brunnerit.ch','+41 76 234 11 09'
+UNION ALL SELECT 'Baumann','Julia','Baumann Architektur','Parkweg',27,'julia.baumann@baumannarch.ch','+41 79 234 11 10'
+UNION ALL SELECT 'Gerber','Noah','Gerber Elektrotechnik','Seefeldstrasse',18,'noah.gerber@gerberelektro.ch','+41 78 234 11 11'
+UNION ALL SELECT 'Zimmermann','Lea','Zimmermann Immobilien','Rosenweg',22,'lea.zimmermann@zimmerimmo.ch','+41 77 234 11 12'
+UNION ALL SELECT 'Moser','Jan','Moser Finance','Zürcherstrasse',64,'jan.moser@moserfinance.ch','+41 79 234 11 13'
+UNION ALL SELECT 'Schneider','Eva','Schneider Treuhand','Kirchweg',9,'eva.schneider@schneidertreu.ch','+41 78 234 11 14'
+UNION ALL SELECT 'Kunz','Lena','Kunz Media','Talstrasse',41,'lena.kunz@kunzmedia.ch','+41 76 234 11 15'
+UNION ALL SELECT 'Stadelmann','Patrick','Stadelmann Bau','Wiesenstrasse',15,'patrick.stadelmann@stadelbau.ch','+41 79 234 11 16'
+UNION ALL SELECT 'Roth','Sara','Roth Consulting','Aarauerstrasse',29,'sara.roth@rothconsult.ch','+41 78 234 11 17'
+UNION ALL SELECT 'Bieri','Tim','Bieri Energie','Buchenweg',5,'tim.bieri@bierienergie.ch','+41 77 234 11 18'
+UNION ALL SELECT 'Egger','Florian','Egger Transport','Industrieweg',72,'florian.egger@eggertrans.ch','+41 79 234 11 19'
+UNION ALL SELECT 'Lutz','Clara','Lutz Design','Gartenstrasse',33,'clara.lutz@lutzdesign.ch','+41 78 234 11 20'
+UNION ALL SELECT 'Vogel','Andreas','Vogel Software','Hirschweg',4,'andreas.vogel@vogelsoft.ch','+41 76 234 11 21'
+UNION ALL SELECT 'Suter','Melanie','Suter Consulting','Rainstrasse',23,'melanie.suter@suterconsult.ch','+41 79 234 11 22'
+UNION ALL SELECT 'Arnold','Fabian','Arnold Security','Industriestrasse',54,'fabian.arnold@arnoldsec.ch','+41 78 234 11 23'
+UNION ALL SELECT 'Kälin','Joel','Kälin Holzbau','Dorfplatz',8,'joel.kaelin@kaelinholz.ch','+41 77 234 11 24'
+UNION ALL SELECT 'Studer','Laura','Studer Events','Festweg',17,'laura.studer@studerevents.ch','+41 79 234 11 25'
+UNION ALL SELECT 'Bachmann','Roman','Bachmann AG','Postgasse',39,'roman.bachmann@bachmannag.ch','+41 78 234 11 26'
+UNION ALL SELECT 'Graf','Nadine','Graf HR','Seestrasse',91,'nadine.graf@grafhr.ch','+41 76 234 11 27'
+UNION ALL SELECT 'Lehmann','Tobias','Lehmann Technik','Werkstrasse',16,'tobias.lehmann@lehmanntech.ch','+41 79 234 11 28'
+UNION ALL SELECT 'Hess','Janine','Hess Beauty','Lindenweg',11,'janine.hess@hessbeauty.ch','+41 78 234 11 29'
+UNION ALL SELECT 'Kaufmann','Marc','Kaufmann Auto','Motorenstrasse',63,'marc.kaufmann@kaufauto.ch','+41 77 234 11 30'
+UNION ALL SELECT 'Ziegler','Eva','Ziegler Mode','Marktplatz',2,'eva.ziegler@zieglermode.ch','+41 79 234 11 31'
+UNION ALL SELECT 'Bolliger','Simon','Bolliger Consulting','Weinbergstrasse',27,'simon.bolliger@bolligerconsult.ch','+41 78 234 11 32'
+UNION ALL SELECT 'Hofer','Julia','Hofer Marketing','Parkallee',34,'julia.hofer@hofermarketing.ch','+41 76 234 11 33'
+UNION ALL SELECT 'Wenger','David','Wenger Bau','Baustrasse',73,'david.wenger@wengerbau.ch','+41 79 234 11 34'
+UNION ALL SELECT 'Stucki','Lara','Stucki Design','Sonnenweg',12,'lara.stucki@stuckidesign.ch','+41 78 234 11 35'
+UNION ALL SELECT 'Nyffenegger','Pascal','Nyffenegger IT','Techpark',5,'pascal.nyff@nyffit.ch','+41 77 234 11 36'
+UNION ALL SELECT 'Gasser','Nina','Gasser Consulting','Höhenweg',44,'nina.gasser@gasserconsult.ch','+41 79 234 11 37'
+UNION ALL SELECT 'Marti','Fabio','Marti Bau AG','Werkhofstrasse',60,'fabio.marti@martibau.ch','+41 78 234 11 38'
+UNION ALL SELECT 'Bär','Lukas','Bär Immobilien','Seeblickweg',21,'lukas.baer@baerimmo.ch','+41 76 234 11 39'
+UNION ALL SELECT 'Wirth','Sara','Wirth Consulting','Talweg',7,'sara.wirth@wirthconsult.ch','+41 79 234 11 40'
+UNION ALL SELECT 'Blaser','Tom','Blaser Security','Industriepark',10,'tom.blaser@blasersec.ch','+41 78 234 11 41'
+UNION ALL SELECT 'Koller','Eva','Koller Treuhand','Hauptgasse',3,'eva.koller@kollertreu.ch','+41 77 234 11 42'
+UNION ALL SELECT 'Furrer','Jan','Furrer Transport','Logistikweg',81,'jan.furrer@furrertrans.ch','+41 79 234 11 43'
+UNION ALL SELECT 'Imhof','Lea','Imhof Design','Seestrasse',52,'lea.imhof@imhofdesign.ch','+41 78 234 11 44'
+UNION ALL SELECT 'Rieder','Paul','Rieder Bau','Bergweg',13,'paul.rieder@riederbau.ch','+41 76 234 11 45'
+UNION ALL SELECT 'Schär','Lina','Schär Marketing','Parkstrasse',29,'lina.schaer@schaermarketing.ch','+41 79 234 11 46'
+UNION ALL SELECT 'Aeschlimann','David','Aeschlimann IT','Digitalweg',6,'david.aesch@aeschit.ch','+41 78 234 11 47'
+UNION ALL SELECT 'Rüegg','Mara','Rüegg Consulting','Bahnhofplatz',1,'mara.rueegg@rueeggconsult.ch','+41 77 234 11 48'
+UNION ALL SELECT 'Lüscher','Nico','Lüscher Elektro','Elektrikerweg',9,'nico.luescher@luescherelektro.ch','+41 79 234 11 49'
+UNION ALL SELECT 'Widmer','Elena','Widmer Finance','Bankstrasse',20,'elena.widmer@widmerfinance.ch','+41 78 234 11 50'
+) AS tmp
+WHERE NOT EXISTS (
+SELECT 1 FROM kunden WHERE kunden.email = tmp.email
+);
 FLUSH PRIVILEGES;
 "@
 
