@@ -1,5 +1,8 @@
 # ============================================================
-# Setup-Skript: MariaDB + Node.js Kunden-App
+# Setup-Skript: Node.js Kunden-App (MariaDB bereits installiert)
+# MariaDB-Pfad : C:\Program Files\MariaDB 12.2\
+# Dienst-Name  : MariaDB
+# Root-Passwort: Login.01
 # ============================================================
 
 # --- Fehlerbehandlung: Fenster bleibt bei Fehler offen ------
@@ -23,7 +26,7 @@ function Abort($message) {
 }
 # ------------------------------------------------------------
 
-# 1. Chocolatey Installation
+# 1. Chocolatey + Node.js installieren (MariaDB wird übersprungen)
 if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
     Write-Host ">>> Installiere Chocolatey..." -ForegroundColor Cyan
     Set-ExecutionPolicy Bypass -Scope Process -Force
@@ -33,33 +36,32 @@ if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
     $env:Path += ";$env:ALLUSERSPROFILE\chocolatey\bin"
 }
 
-# 2. Node.js & MariaDB installieren
-Write-Host ">>> Installiere Node.js und MariaDB..." -ForegroundColor Cyan
+Write-Host ">>> Installiere Node.js..." -ForegroundColor Cyan
 choco install nodejs -y
-choco install mariadb -y --params '/Password:Login.01'
 
 # PATH für aktuelle Sitzung aktualisieren
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
-# 3. MariaDB-Pfad ermitteln
-$mysqlExe = Get-ChildItem "C:\Program Files\MariaDB*\bin\mysql.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-if (!$mysqlExe) {
-    Abort "MariaDB-Binary nicht gefunden! Installation fehlgeschlagen."
+# 2. MariaDB-Pfad (fest, manuell installiert)
+$mysqlPath = "C:\Program Files\MariaDB 12.2\bin\mysql.exe"
+if (!(Test-Path $mysqlPath)) {
+    Abort "mysql.exe nicht gefunden unter: $mysqlPath`nBitte Pfad im Skript anpassen."
 }
-$mysqlPath = $mysqlExe.FullName
 Write-Host ">>> MariaDB gefunden: $mysqlPath" -ForegroundColor Green
 
-# 4. MariaDB Dienst prüfen und starten
-$mariaService = Get-Service -Name "MariaDB" -ErrorAction SilentlyContinue
-if (!$mariaService) {
-    Abort "MariaDB-Dienst nicht gefunden! Installation fehlgeschlagen."
-}
-
+# 3. MariaDB-Dienst starten
 Write-Host ">>> Starte MariaDB-Dienst..." -ForegroundColor Cyan
-Start-Service -Name "MariaDB" -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 5
+$svc = Get-Service -Name "MariaDB" -ErrorAction SilentlyContinue
+if (!$svc) {
+    Abort "Dienst 'MariaDB' nicht gefunden. Bitte Installation prüfen."
+}
+if ($svc.Status -ne "Running") {
+    Start-Service -Name "MariaDB"
+    Start-Sleep -Seconds 5
+}
+Write-Host ">>> Dienst läuft." -ForegroundColor Green
 
-# 5. SQL-Setup definieren (NACH der Installation, VOR der Ausführung)
+# 4. SQL-Setup (user 'admin' existiert bereits — nur DB + Tabelle + Daten)
 $sqlSetup = @"
 CREATE DATABASE IF NOT EXISTS kunden_db;
 CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'Login.01';
@@ -134,15 +136,15 @@ WHERE NOT EXISTS (
 FLUSH PRIVILEGES;
 "@
 
-# 6. SQL ausführen (mit vollem Pfad)
+# 5. SQL ausführen
 Write-Host ">>> Konfiguriere MariaDB Datenbank..." -ForegroundColor Cyan
 & $mysqlPath -u root --password=Login.01 -e $sqlSetup
 if ($LASTEXITCODE -ne 0) {
-    Abort "SQL-Setup fehlgeschlagen! Bitte Root-Passwort prüfen."
+    Abort "SQL-Setup fehlgeschlagen! Root-Passwort oder Benutzer 'admin' prüfen."
 }
 Write-Host ">>> Datenbank erfolgreich konfiguriert." -ForegroundColor Green
 
-# 7. Web-App Setup
+# 6. Web-App Setup
 $projectPath = "$HOME\Kunden_App"
 if (!(Test-Path $projectPath)) { New-Item -ItemType Directory -Path $projectPath | Out-Null }
 Set-Location $projectPath
@@ -202,8 +204,8 @@ app.listen(port, () => {
 });
 '@ | Out-File -FilePath index.js -Encoding utf8
 
-# 8. Firewall-Regel & App starten
+# 7. Firewall-Regel & App starten
 New-NetFirewallRule -DisplayName "NodeJS WebApp Port 3000" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow -ErrorAction SilentlyContinue
 
-Write-Host ">>> Alles installiert und konfiguriert. Starte App..." -ForegroundColor Green
+Write-Host ">>> Alles konfiguriert. Starte App auf http://localhost:3000 ..." -ForegroundColor Green
 node index.js
