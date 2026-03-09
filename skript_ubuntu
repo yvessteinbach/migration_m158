@@ -22,10 +22,7 @@ fi
 echo ">>> PostgreSQL wird gestartet..."
 sudo systemctl start postgresql
 sudo systemctl enable postgresql
-
-sleep 2
-
-if ! sudo systemctl is-active --quiet postgresql; then
+sudo systemctl is-active --quiet postgresql || exit 1
   echo "FEHLER: PostgreSQL konnte nicht gestartet werden."
   exit 1
 fi
