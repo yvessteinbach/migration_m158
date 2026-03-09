@@ -8,14 +8,20 @@ if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
     $env:Path += ";$env:ALLUSERSPROFILE\chocolatey\bin"
 }
 
-# 2. MariaDB 12.1.2 & Node.js installieren
-Write-Host ">>> Installiere MariaDB 12.1.2 und Node.js..." -ForegroundColor Cyan
+# 2. MariaDB 12 & Node.js installieren
+Write-Host ">>> Installiere MariaDB 12 und Node.js..." -ForegroundColor Cyan
 choco install nodejs -y
 # Wir versuchen die spezifische Version zu erzwingen
 choco install mariadb -y --params '/Password:Login.01'
 
 # Pfad zur MariaDB-Binärdatei für die aktuelle Sitzung
-$env:Path += ";C:\Program Files\MariaDB*\bin"
+$mysqlPath = Get-ChildItem "C:\Program Files\MariaDB*\bin\mysql.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+& $mysqlPath.FullName -u root --password=Login.01 -e $sqlSetup
+
+if (!(Get-Service MariaDB -ErrorAction SilentlyContinue)) {
+    Write-Host "MariaDB Installation fehlgeschlagen!" -ForegroundColor Red
+    exit
+}
 
 # 3. MariaDB Dienst starten und Datenbank konfigurieren
 Write-Host ">>> Konfiguriere MariaDB Datenbank..." -ForegroundColor Cyan
