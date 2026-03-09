@@ -32,8 +32,8 @@ Start-Sleep -s 5
 # SQL-Befehle zur Einrichtung (Wir nutzen das Root-Passwort von oben)
 $sqlSetup = @"
 CREATE DATABASE IF NOT EXISTS kunden_db;
-CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'Login.01';
-GRANT ALL PRIVILEGES ON kunden_db.* TO 'admin'@'localhost';
+CREATE USER IF NOT EXISTS 'admin'@'127.0.0.1' IDENTIFIED BY 'Login.01';
+GRANT ALL PRIVILEGES ON kunden_db.* TO 'admin'@'127.0.0.1';
 USE kunden_db;
 CREATE TABLE IF NOT EXISTS kunden (
     id INT AUTO_INCREMENT PRIMARY KEY,
