@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS kunden (
   vorname VARCHAR(255),
   firma VARCHAR(255),
   adresse VARCHAR(255),
-  hausnummer INT,
+  hausnummer VARCHAR(10),
   email VARCHAR(255) UNIQUE,
   telefonnummer VARCHAR(20)
 );
