@@ -2,6 +2,27 @@
 # Setup-Skript: MariaDB + Node.js Kunden-App
 # ============================================================
 
+# --- Fehlerbehandlung: Fenster bleibt bei Fehler offen ------
+trap {
+    Write-Host ""
+    Write-Host "!!! UNERWARTETER FEHLER !!!" -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Druecke eine beliebige Taste zum Beenden..." -ForegroundColor Yellow
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    exit 1
+}
+
+function Abort($message) {
+    Write-Host ""
+    Write-Host "!!! FEHLER: $message" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Druecke eine beliebige Taste zum Beenden..." -ForegroundColor Yellow
+    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    exit 1
+}
+# ------------------------------------------------------------
+
 # 1. Chocolatey Installation
 if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
     Write-Host ">>> Installiere Chocolatey..." -ForegroundColor Cyan
@@ -21,10 +42,9 @@ choco install mariadb -y --params '/Password:Login.01'
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
 # 3. MariaDB-Pfad ermitteln
-$mysqlExe = Get-ChildItem "C:\Program Files\MariaDB 12.2\bin\mysql.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+$mysqlExe = Get-ChildItem "C:\Program Files\MariaDB*\bin\mysql.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
 if (!$mysqlExe) {
-    Write-Host "MariaDB-Binary nicht gefunden! Installation fehlgeschlagen." -ForegroundColor Red
-    exit 1
+    Abort "MariaDB-Binary nicht gefunden! Installation fehlgeschlagen."
 }
 $mysqlPath = $mysqlExe.FullName
 Write-Host ">>> MariaDB gefunden: $mysqlPath" -ForegroundColor Green
@@ -32,8 +52,7 @@ Write-Host ">>> MariaDB gefunden: $mysqlPath" -ForegroundColor Green
 # 4. MariaDB Dienst prüfen und starten
 $mariaService = Get-Service -Name "MariaDB" -ErrorAction SilentlyContinue
 if (!$mariaService) {
-    Write-Host "MariaDB-Dienst nicht gefunden! Installation fehlgeschlagen." -ForegroundColor Red
-    exit 1
+    Abort "MariaDB-Dienst nicht gefunden! Installation fehlgeschlagen."
 }
 
 Write-Host ">>> Starte MariaDB-Dienst..." -ForegroundColor Cyan
@@ -119,8 +138,7 @@ FLUSH PRIVILEGES;
 Write-Host ">>> Konfiguriere MariaDB Datenbank..." -ForegroundColor Cyan
 & $mysqlPath -u root --password=Login.01 -e $sqlSetup
 if ($LASTEXITCODE -ne 0) {
-    Write-Host "SQL-Setup fehlgeschlagen! Bitte Root-Passwort prüfen." -ForegroundColor Red
-    exit 1
+    Abort "SQL-Setup fehlgeschlagen! Bitte Root-Passwort prüfen."
 }
 Write-Host ">>> Datenbank erfolgreich konfiguriert." -ForegroundColor Green
 
