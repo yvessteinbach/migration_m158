@@ -15,8 +15,7 @@ choco install nodejs -y
 choco install mariadb -y --params '/Password:Login.01'
 
 # Pfad zur MariaDB-Binärdatei für die aktuelle Sitzung
-$mysqlPath = Get-ChildItem "C:\Program Files\MariaDB*\bin\mysql.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-& $mysqlPath.FullName -u root --password=Login.01 -e $sqlSetup
+$mysqlPath = "C:\Program Files\MariaDB 12.2\bin\mysql.exe"
 
 if (!(Get-Service MariaDB -ErrorAction SilentlyContinue)) {
     Write-Host "MariaDB Installation fehlgeschlagen!" -ForegroundColor Red
@@ -106,7 +105,7 @@ FLUSH PRIVILEGES;
 "@
 
 # Ausführen der SQL-Befehle als Root
-& "mysql.exe" -u root --password=Login.01 -e $sqlSetup
+& "$mysqlPath" --user=root --password=Login.01
 
 # 4. Web-App Setup
 $projectPath = "$HOME\Kunden_App"
