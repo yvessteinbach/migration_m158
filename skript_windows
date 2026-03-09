@@ -1,50 +1,127 @@
-# 1. Chocolatey Installation
-if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
-    Write-Host ">>> Installiere Chocolatey..." -ForegroundColor Cyan
-    Set-ExecutionPolicy Bypass -Scope Process -Force
-    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-    $installScript = ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-    Invoke-Expression $installScript
-    $env:Path += ";$env:ALLUSERSPROFILE\chocolatey\bin"
+# ============================================================
+#  setup_kunden_app.ps1  —  Version corrigée
+#  Prérequis : lancer en tant qu'Administrateur
+# ============================================================
+
+#Requires -RunAsAdministrator
+$ErrorActionPreference = "Stop"
+
+# ────────────────────────────────────────────────────────────
+# 0. Fonctions utilitaires
+# ────────────────────────────────────────────────────────────
+function Refresh-Path {
+    $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") +
+                ";" +
+                [System.Environment]::GetEnvironmentVariable("Path","User")
 }
 
-# 2. MariaDB & Node.js installieren
-Write-Host ">>> Installiere MariaDB und Node.js..." -ForegroundColor Cyan
-choco install nodejs -y
-choco install mariadb -y --params "'/Password:Login.01'"
+function Wait-ForService {
+    param([string]$Name, [int]$TimeoutSec = 60)
+    $sw = [Diagnostics.Stopwatch]::StartNew()
+    while ($sw.Elapsed.TotalSeconds -lt $TimeoutSec) {
+        $svc = Get-Service | Where-Object { $_.Name -like $Name } | Select-Object -First 1
+        if ($svc -and $svc.Status -eq "Running") { return $svc.Name }
+        Start-Sleep -Seconds 2
+    }
+    throw "Le service '$Name' n'a pas démarré dans les $TimeoutSec secondes."
+}
 
-# Aktualisiere die Umgebungsvariablen für die aktuelle Sitzung
-$env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+# ────────────────────────────────────────────────────────────
+# 1. Installation de Chocolatey (si absent)
+# ────────────────────────────────────────────────────────────
+if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+    Write-Host ">>> Installation de Chocolatey..." -ForegroundColor Cyan
+    Set-ExecutionPolicy Bypass -Scope Process -Force
+    [System.Net.ServicePointManager]::SecurityProtocol =
+        [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+    $installScript = (New-Object System.Net.WebClient).DownloadString(
+        'https://community.chocolatey.org/install.ps1')
+    Invoke-Expression $installScript
 
-# Dynamische Suche nach der MariaDB-Binärdatei
-$mysqlPath = Get-ChildItem -Path "C:\Program Files\MariaDB*" -Filter "mysql.exe" -Recurse | Select-Object -ExpandProperty FullName -First 1
+    # Recharger le PATH immédiatement après Chocolatey
+    Refresh-Path
+}
+
+# ────────────────────────────────────────────────────────────
+# 2. Installation de Node.js et MariaDB
+# ────────────────────────────────────────────────────────────
+Write-Host ">>> Installation de Node.js..." -ForegroundColor Cyan
+choco install nodejs -y --no-progress
+
+Write-Host ">>> Installation de MariaDB..." -ForegroundColor Cyan
+choco install mariadb -y --no-progress --params "'/Password:Login.01'"
+
+# Recharger le PATH après les installations
+Refresh-Path
+
+# ────────────────────────────────────────────────────────────
+# 3. Vérification de mysql.exe
+# ────────────────────────────────────────────────────────────
+$mysqlPath = Get-ChildItem -Path "C:\Program Files\MariaDB*" `
+             -Filter "mysql.exe" -Recurse -ErrorAction SilentlyContinue |
+             Select-Object -ExpandProperty FullName -First 1
 
 if (!$mysqlPath) {
-    Write-Host "MariaDB Installation nicht gefunden!" -ForegroundColor Red
-    exit
+    # Deuxième tentative dans Program Files (x86)
+    $mysqlPath = Get-ChildItem -Path "C:\Program Files (x86)\MariaDB*" `
+                 -Filter "mysql.exe" -Recurse -ErrorAction SilentlyContinue |
+                 Select-Object -ExpandProperty FullName -First 1
 }
 
-# 3. MariaDB Dienst starten und Datenbank konfigurieren
-Write-Host ">>> Konfiguriere MariaDB Datenbank..." -ForegroundColor Cyan
-Start-Service -Name "MariaDB*" -ErrorAction SilentlyContinue
-Start-Sleep -s 5
+if (!$mysqlPath) {
+    Write-Host "ERREUR : mysql.exe introuvable. Vérifiez l'installation de MariaDB." -ForegroundColor Red
+    exit 1
+}
+Write-Host "mysql.exe trouvé : $mysqlPath" -ForegroundColor Green
+
+# ────────────────────────────────────────────────────────────
+# 4. Démarrage du service MariaDB
+# ────────────────────────────────────────────────────────────
+Write-Host ">>> Démarrage du service MariaDB..." -ForegroundColor Cyan
+
+# Cherche le service avec wildcard puis démarre par son nom exact
+$mariaService = Get-Service | Where-Object { $_.Name -like "MariaDB*" } | Select-Object -First 1
+
+if (!$mariaService) {
+    Write-Host "ERREUR : service MariaDB introuvable." -ForegroundColor Red
+    exit 1
+}
+
+if ($mariaService.Status -ne "Running") {
+    Start-Service -Name $mariaService.Name
+}
+
+# Attendre que le service soit réellement opérationnel
+$svcName = Wait-ForService -Name "MariaDB*" -TimeoutSec 60
+Write-Host "Service '$svcName' démarré avec succès." -ForegroundColor Green
+
+# Pause supplémentaire pour que MariaDB accepte les connexions
+Start-Sleep -Seconds 3
+
+# ────────────────────────────────────────────────────────────
+# 5. Configuration de la base de données
+# ────────────────────────────────────────────────────────────
+Write-Host ">>> Configuration de la base de données MariaDB..." -ForegroundColor Cyan
 
 $sqlSetup = @"
-CREATE DATABASE IF NOT EXISTS kunden_db;
+CREATE DATABASE IF NOT EXISTS kunden_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 CREATE USER IF NOT EXISTS 'admin'@'127.0.0.1' IDENTIFIED BY 'Login.01';
 GRANT ALL PRIVILEGES ON kunden_db.* TO 'admin'@'127.0.0.1';
 FLUSH PRIVILEGES;
+
 USE kunden_db;
+
 CREATE TABLE IF NOT EXISTS kunden (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255),
-    vorname VARCHAR(255),
-    firma VARCHAR(255),
-    adresse VARCHAR(255),
-    hausnummer VARCHAR(10),
-    email VARCHAR(255),
+    id            INT AUTO_INCREMENT PRIMARY KEY,
+    name          VARCHAR(255),
+    vorname       VARCHAR(255),
+    firma         VARCHAR(255),
+    adresse       VARCHAR(255),
+    hausnummer    VARCHAR(10),
+    email         VARCHAR(255),
     telefonnummer VARCHAR(20)
-);
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 INSERT INTO kunden (name, vorname, firma, adresse, hausnummer, email, telefonnummer)
 SELECT * FROM (
     SELECT 'Müller','Lukas','AlpenTech AG','Bahnhofstrasse','12','lukas.mueller@alpentech.ch','+41 79 234 11 01'
@@ -103,19 +180,52 @@ WHERE NOT EXISTS (
 );
 "@
 
-# Ausführen der SQL-Befehle via Input-Redirection
-$sqlSetup | & "$mysqlPath" --user=root --password=Login.01
+# Écriture dans un fichier temporaire (UTF-8 sans BOM) pour éviter
+# les problèmes d'encoding et de pipe
+$tmpSql = "$env:TEMP\kunden_setup.sql"
+[System.IO.File]::WriteAllText($tmpSql, $sqlSetup, [System.Text.UTF8Encoding]::new($false))
 
-# 4. Web-App Setup
+# Exécution via redirection de fichier (plus fiable que le pipe PowerShell)
+$mysqlArgs = @("--user=root", "--password=Login.01", "--default-character-set=utf8mb4")
+& $mysqlPath @mysqlArgs | Out-Null
+Get-Content $tmpSql | & $mysqlPath @mysqlArgs
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERREUR : La configuration SQL a échoué (code $LASTEXITCODE)." -ForegroundColor Red
+    exit 1
+}
+Write-Host "Base de données configurée avec succès." -ForegroundColor Green
+
+# Nettoyage du fichier SQL temporaire
+Remove-Item $tmpSql -ErrorAction SilentlyContinue
+
+# ────────────────────────────────────────────────────────────
+# 6. Création du projet Node.js
+# ────────────────────────────────────────────────────────────
 $projectPath = "$HOME\Kunden_App"
-if (!(Test-Path $projectPath)) { New-Item -ItemType Directory -Path $projectPath | Out-Null }
+if (!(Test-Path $projectPath)) {
+    New-Item -ItemType Directory -Path $projectPath | Out-Null
+}
 Set-Location $projectPath
 
-Write-Host ">>> Erstelle Web-App..." -ForegroundColor Cyan
-if (!(Test-Path "package.json")) { cmd /c "npm init -y" }
-cmd /c "npm install express mariadb --save"
+Write-Host ">>> Initialisation du projet Node.js..." -ForegroundColor Cyan
 
-# index.js Inhalt
+if (!(Test-Path "package.json")) {
+    & npm init -y
+}
+
+& npm install express mariadb --save
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "ERREUR : npm install a échoué." -ForegroundColor Red
+    exit 1
+}
+
+# ────────────────────────────────────────────────────────────
+# 7. Création de index.js (UTF-8 sans BOM)
+# ────────────────────────────────────────────────────────────
+Write-Host ">>> Création de index.js..." -ForegroundColor Cyan
+
 $indexJsContent = @'
 const express = require('express');
 const mariadb = require('mariadb');
@@ -123,40 +233,67 @@ const app = express();
 const port = 3000;
 
 const pool = mariadb.createPool({
-     host: '127.0.0.1', 
-     user: 'admin',
-     password: 'Login.01',
-     database: 'kunden_db',
-     connectionLimit: 5
+    host: '127.0.0.1',
+    user: 'admin',
+    password: 'Login.01',
+    database: 'kunden_db',
+    connectionLimit: 5
 });
 
 app.get('/', async (req, res) => {
     let conn;
     try {
         conn = await pool.getConnection();
-        const rows = await conn.query("SELECT * FROM kunden");
-        let html = `
-            <style>
-                body { font-family: 'Segoe UI', sans-serif; padding: 40px; background: #f4f7f6; }
-                .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-                table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                th, td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
-                th { background-color: #0078d4; color: white; }
-                tr:hover { background-color: #f1f1f1; }
-            </style>
-            <div class="card">
-                <h1>Kundendatenbank</h1>
-                <p>Anzahl Datensätze: ${rows.length}</p>
-                <table>
-                    <thead>
-                        <tr><th>Name, Vorname</th><th>Firma</th><th>Email</th><th>Telefon</th></tr>
-                    </thead>
-                    <tbody>
-        `;
+        const rows = await conn.query("SELECT * FROM kunden ORDER BY name, vorname");
+        let html = `<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Kundendatenbank</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; padding: 40px; background: #f4f7f6; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { color: #0078d4; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; border-bottom: 1px solid #ddd; text-align: left; }
+        th { background-color: #0078d4; color: white; }
+        tr:hover { background-color: #f1f1f1; }
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>Kundendatenbank</h1>
+        <p>Anzahl Datensätze: ${rows.length}</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Name, Vorname</th>
+                    <th>Firma</th>
+                    <th>Adresse</th>
+                    <th>Email</th>
+                    <th>Telefon</th>
+                </tr>
+            </thead>
+            <tbody>`;
+
         rows.forEach(k => {
-            html += `<tr><td>${k.name}, ${k.vorname}</td><td>${k.firma}</td><td>${k.email}</td><td>${k.telefonnummer}</td></tr>`;
+            html += `
+                <tr>
+                    <td>${k.name}, ${k.vorname}</td>
+                    <td>${k.firma}</td>
+                    <td>${k.adresse} ${k.hausnummer}</td>
+                    <td><a href="mailto:${k.email}">${k.email}</a></td>
+                    <td>${k.telefonnummer}</td>
+                </tr>`;
         });
-        html += '</tbody></table></div>';
+
+        html += `
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>`;
+
         res.send(html);
     } catch (err) {
         res.status(500).send("Datenbankfehler: " + err.message);
@@ -165,15 +302,41 @@ app.get('/', async (req, res) => {
     }
 });
 
-app.listen(port, () => {
+app.listen(port, '0.0.0.0', () => {
     console.log(`>>> Server läuft auf http://localhost:${port}`);
 });
 '@
 
-$indexJsContent | Out-File -FilePath index.js -Encoding utf8
+# Écriture sans BOM — crucial pour Node.js
+[System.IO.File]::WriteAllText(
+    "$projectPath\index.js",
+    $indexJsContent,
+    [System.Text.UTF8Encoding]::new($false)
+)
 
-# 5. Firewall & Start
-New-NetFirewallRule -DisplayName "NodeJS WebApp Port 3000" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow -ErrorAction SilentlyContinue
+# ────────────────────────────────────────────────────────────
+# 8. Règle de pare-feu
+# ────────────────────────────────────────────────────────────
+Write-Host ">>> Configuration du pare-feu (port 3000)..." -ForegroundColor Cyan
+$fwRule = Get-NetFirewallRule -DisplayName "NodeJS WebApp Port 3000" -ErrorAction SilentlyContinue
+if (!$fwRule) {
+    New-NetFirewallRule `
+        -DisplayName "NodeJS WebApp Port 3000" `
+        -Direction Inbound `
+        -LocalPort 3000 `
+        -Protocol TCP `
+        -Action Allow | Out-Null
+}
 
-Write-Host ">>> Alles installiert und konfiguriert. Starte App..." -ForegroundColor Green
-node index.js
+# ────────────────────────────────────────────────────────────
+# 9. Lancement de l'application
+# ────────────────────────────────────────────────────────────
+Write-Host ""
+Write-Host "============================================================" -ForegroundColor Green
+Write-Host " Tout est installé et configuré !" -ForegroundColor Green
+Write-Host " Ouvre http://localhost:3000 dans ton navigateur." -ForegroundColor Green
+Write-Host "============================================================" -ForegroundColor Green
+Write-Host ""
+
+Set-Location $projectPath
+& node index.js
