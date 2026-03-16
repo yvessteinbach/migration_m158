@@ -1,6 +1,6 @@
 # Windows Voreinstellungen
 New-NetFirewallRule -DisplayName "MariaDB Remote Access" -Direction Inbound -LocalPort 3306 -Protocol TCP -Action Allow
-mysql -u root -p Login.01
+& "C:\Program Files\MariaDB 12.2\bin\mysql.exe" -u root -pLogin.01
 GRANT ALL PRIVILEGES ON kunden_db.* TO 'root'@'%' IDENTIFIED BY 'Login.01';
 FLUSH PRIVILEGES;
 
