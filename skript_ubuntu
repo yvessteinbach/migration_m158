@@ -10,7 +10,7 @@ DB_NAME="kunden_db"
 
 # MariaDB / MySQL Quelle
 MYSQL_USER="root"
-MYSQL_PASSWORD="password"
+MYSQL_PASSWORD="Login.01"
 MYSQL_HOST="windows_ip"
 MYSQL_DB="kunden_db"
 
