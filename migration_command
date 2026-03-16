@@ -4,7 +4,7 @@
 # GRANT ALL PRIVILEGES ON kunden_db.* TO 'root'@'%' IDENTIFIED BY 'Login.01';
 # FLUSH PRIVILEGES;
 
-Start-Service -Name "MariaDB"
+# Start-Service -Name "MariaDB"
 
 # Ubuntu Befehl
-pgloader mysql://root:Login.01@windows_ip/kunden_db postgresql://admin:Login.01@localhost/kunden_db
+pgloader mysql://root:Login.01@172.26.65.123/kunden_db postgresql://admin:Login.01@localhost/kunden_db
