@@ -8,17 +8,11 @@ DB_USER="admin"
 DB_PASSWORD="Login.01"
 DB_NAME="kunden_db"
 
-# MariaDB / MySQL Quelle
-MYSQL_USER="root"
-MYSQL_PASSWORD="Login.01"
-MYSQL_HOST="172.26.65.123"
-MYSQL_DB="kunden_db"
-
 APP_DIR="$HOME/Kunden_App"
 PORT=3000
 PG_VERSION="17"
 
-echo ">>> System wird aktualisiert..."
+echo ">>> System wird aktualisiert und Werkzeuge werden installiert..."
 sudo apt update
 sudo apt install -y curl build-essential git postgresql postgresql-contrib pgloader
 
@@ -60,14 +54,8 @@ fi
 echo ">>> Setze Eigentümerrechte auf Datenbank..."
 sudo -u postgres psql -c "ALTER DATABASE $DB_NAME OWNER TO $DB_USER;"
 
-echo ">>> Starte Migration von MariaDB nach PostgreSQL mit pgloader..."
-
-PGLOADER_SOURCE="mysql://${MYSQL_USER}:${MYSQL_PASSWORD}@${MYSQL_HOST}/${MYSQL_DB}"
-PGLOADER_TARGET="postgresql://${DB_USER}:${DB_PASSWORD}@localhost/${DB_NAME}"
-
-pgloader "$PGLOADER_SOURCE" "$PGLOADER_TARGET"
-
-echo ">>> Migration abgeschlossen."
+# --- PGLOADER MIGRATION ENTFERNT ---
+echo ">>> pgloader wurde installiert, aber es wird keine Migration durchgeführt."
 
 echo ">>> Rechte auf Schema und Objekte werden gesetzt..."
 sudo -u postgres psql -d "$DB_NAME" <<EOF
@@ -129,62 +117,21 @@ app.get('/', async (req, res) => {
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kundendatenbank</title>
     <style>
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            margin: 0; 
-            padding: 40px; 
-            background-color: #f8f9fa;
-            color: #333;
-        }
-        .container {
-            max-width: 1100px;
-            margin: auto;
-            background: white;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        }
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 20px;
-            border-bottom: 2px solid #007bff;
-            padding-bottom: 10px;
-        }
-        h1 { margin: 0; color: #007bff; }
-        .btn-refresh {
-            background-color: #007bff;
-            color: white;
-            border: none;
-            padding: 10px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            font-weight: bold;
-            transition: background 0.3s;
-        }
-        .btn-refresh:hover { background-color: #0056b3; }
+        body { font-family: sans-serif; padding: 40px; background-color: #f8f9fa; }
+        .container { max-width: 1100px; margin: auto; background: white; padding: 20px; border-radius: 8px; }
         table { border-collapse: collapse; width: 100%; margin-top: 10px; }
         th, td { border: 1px solid #dee2e6; padding: 12px; text-align: left; }
         th { background: #007bff; color: white; }
-        tr:nth-child(even) { background-color: #f2f2f2; }
-        tr:hover { background-color: #e9ecef; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>Kundenliste</h1>
-            <button class="btn-refresh" onclick="window.location.reload()">🔄 Aktualisieren</button>
-        </div>
+        <h1>Kundenliste</h1>
         <table>
             <thead>
-                <tr>
-                    <th>ID</th><th>Name</th><th>Vorname</th><th>Firma</th><th>Adresse</th><th>Email</th><th>Telefon</th>
-                </tr>
+                <tr><th>ID</th><th>Name</th><th>Vorname</th><th>Firma</th><th>Email</th></tr>
             </thead>
             <tbody>
                 \${rows.map(k => \`
@@ -193,19 +140,16 @@ app.get('/', async (req, res) => {
                     <td><strong>\${k.name ?? ''}</strong></td>
                     <td>\${k.vorname ?? ''}</td>
                     <td>\${k.firma ?? ''}</td>
-                    <td>\${k.adresse ?? ''}\${k.hausnummer ? ' ' + k.hausnummer : ''}</td>
                     <td>\${k.email ?? ''}</td>
-                    <td>\${k.telefonnummer ?? ''}</td>
                 </tr>\`).join('')}
             </tbody>
         </table>
     </div>
 </body>
 </html>\`;
-
     res.send(html);
   } catch (err) {
-    res.status(500).send('Datenbankfehler: ' + err.message);
+    res.status(500).send('Datenbankfehler: ' + err.message + '<br>Hinweis: Die Tabelle \"kunden\" muss existieren.');
   }
 });
 
@@ -221,9 +165,10 @@ sleep 2
 
 if curl -s "http://localhost:${PORT}" > /dev/null; then
   echo "======================================="
-  echo "ANWENDUNG LÄUFT (Modernisiert):"
-  echo "http://localhost:${PORT}"
+  echo "INSTALLATION ABGESCHLOSSEN:"
+  echo "Die Anwendung läuft unter http://localhost:${PORT}"
+  echo "Wichtig: Die Tabelle 'kunden' wurde nicht automatisch erstellt."
   echo "======================================="
 else
-  echo "FEHLER: Anwendung startet nicht."
+  echo "FEHLER: Anwendung konnte nicht gestartet werden."
 fi
