@@ -1,8 +1,10 @@
 # Windows Voreinstellungen
-New-NetFirewallRule -DisplayName "MariaDB Remote Access" -Direction Inbound -LocalPort 3306 -Protocol TCP -Action Allow
-& "C:\Program Files\MariaDB 12.2\bin\mysql.exe" -u root -pLogin.01
-GRANT ALL PRIVILEGES ON kunden_db.* TO 'root'@'%' IDENTIFIED BY 'Login.01';
-FLUSH PRIVILEGES;
+# New-NetFirewallRule -DisplayName "MariaDB Remote Access" -Direction Inbound -LocalPort 3306 -Protocol TCP -Action Allow
+# & "C:\Program Files\MariaDB 12.2\bin\mysql.exe" -u root -pLogin.01
+# GRANT ALL PRIVILEGES ON kunden_db.* TO 'root'@'%' IDENTIFIED BY 'Login.01';
+# FLUSH PRIVILEGES;
+
+Start-Service -Name "MariaDB"
 
 # Ubuntu Befehl
 pgloader mysql://root:Login.01@windows_ip/kunden_db postgresql://admin:Login.01@localhost/kunden_db
