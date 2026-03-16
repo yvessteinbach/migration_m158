@@ -61,12 +61,13 @@ if ($svc.Status -ne "Running") {
 }
 Write-Host ">>> Dienst läuft." -ForegroundColor Green
 
-# 4. SQL-Setup (user 'admin' existiert bereits — nur DB + Tabelle + Daten)
+# 4. SQL-Setup (Corrigé avec des alias de colonnes)
 $sqlSetup = @"
 CREATE DATABASE IF NOT EXISTS kunden_db;
 CREATE USER IF NOT EXISTS 'admin'@'localhost' IDENTIFIED BY 'Login.01';
 GRANT ALL PRIVILEGES ON kunden_db.* TO 'admin'@'localhost';
 USE kunden_db;
+
 CREATE TABLE IF NOT EXISTS kunden (
     id INT AUTO_INCREMENT PRIMARY KEY,
     name VARCHAR(255),
@@ -77,9 +78,17 @@ CREATE TABLE IF NOT EXISTS kunden (
     email VARCHAR(255),
     telefonnummer VARCHAR(20)
 );
+
 INSERT INTO kunden (name, vorname, firma, adresse, hausnummer, email, telefonnummer)
 SELECT * FROM (
-SELECT 'Müller','Lukas','AlpenTech AG','Bahnhofstrasse','12','lukas.mueller@alpentech.ch','+41 79 234 11 01'
+    SELECT 
+        'Müller' AS name, 
+        'Lukas' AS vorname, 
+        'AlpenTech AG' AS firma, 
+        'Bahnhofstrasse' AS adresse, 
+        '12' AS hausnummer, 
+        'lukas.mueller@alpentech.ch' AS email, 
+        '+41 79 234 11 01' AS telefonnummer
 UNION ALL SELECT 'Meier','Sophie','SwissData GmbH','Seestrasse','45','sophie.meier@swissdata.ch','+41 78 234 11 02'
 UNION ALL SELECT 'Schmid','David','Helvetic Solutions','Dorfstrasse','7','david.schmid@helvetic.ch','+41 76 234 11 03'
 UNION ALL SELECT 'Keller','Anna','Keller Consulting','Hauptstrasse','88','anna.keller@kellerconsult.ch','+41 79 234 11 04'
