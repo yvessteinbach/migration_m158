@@ -11,7 +11,7 @@ DB_NAME="kunden_db"
 # MariaDB / MySQL Quelle
 MYSQL_USER="root"
 MYSQL_PASSWORD="Login.01"
-MYSQL_HOST="windows_ip"
+MYSQL_HOST="172.26.65.123"
 MYSQL_DB="kunden_db"
 
 APP_DIR="$HOME/Kunden_App"
