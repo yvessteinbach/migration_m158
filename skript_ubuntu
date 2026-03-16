@@ -112,6 +112,18 @@ app.get('/', async (req, res) => {
     const result = await pool.query('SELECT * FROM kunden ORDER BY id ASC');
     const rows = result.rows;
 
+    // Logik für leere Datenbank / Tabelle
+    const tableContent = rows.length > 0 
+      ? rows.map(k => \`
+          <tr>
+            <td>\${k.id ?? ''}</td>
+            <td><strong>\${k.name ?? ''}</strong></td>
+            <td>\${k.vorname ?? ''}</td>
+            <td>\${k.firma ?? ''}</td>
+            <td>\${k.email ?? ''}</td>
+          </tr>\`).join('')
+      : '<tr><td colspan="5" style="text-align:center; padding: 20px;">Die Datenbank ist momentan leer oder enthält keine Kunden.</td></tr>';
+
     const html = \`
 <!DOCTYPE html>
 <html lang="de">
@@ -134,14 +146,7 @@ app.get('/', async (req, res) => {
                 <tr><th>ID</th><th>Name</th><th>Vorname</th><th>Firma</th><th>Email</th></tr>
             </thead>
             <tbody>
-                \${rows.map(k => \`
-                <tr>
-                    <td>\${k.id ?? ''}</td>
-                    <td><strong>\${k.name ?? ''}</strong></td>
-                    <td>\${k.vorname ?? ''}</td>
-                    <td>\${k.firma ?? ''}</td>
-                    <td>\${k.email ?? ''}</td>
-                </tr>\`).join('')}
+                \${tableContent}
             </tbody>
         </table>
     </div>
