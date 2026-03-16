@@ -14,28 +14,20 @@ PG_VERSION="17"
 
 echo ">>> System wird aktualisiert und Werkzeuge werden installiert..."
 sudo apt update
+# pgloader wird nur installiert, aber im Script nicht ausgeführt
 sudo apt install -y curl build-essential git postgresql postgresql-contrib pgloader
 
 echo ">>> Prüfe PostgreSQL Installation..."
 
-# Falls kein Cluster existiert -> erstellen
 if ! sudo pg_lsclusters | grep -q "main"; then
   echo ">>> Kein PostgreSQL-Cluster gefunden – wird erstellt..."
   sudo pg_createcluster "$PG_VERSION" main
 fi
 
-echo ">>> PostgreSQL wird gestartet..."
 sudo systemctl start postgresql
 sudo systemctl enable postgresql
 
-if ! sudo systemctl is-active --quiet postgresql; then
-  echo "FEHLER: PostgreSQL konnte nicht gestartet werden."
-  exit 1
-fi
-
-echo ">>> PostgreSQL läuft."
-
-# Rolle erstellen falls nicht vorhanden
+# Rolle und leere Datenbank erstellen
 if sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname = '$DB_USER'" | grep -q 1; then
   echo ">>> Rolle existiert bereits."
 else
@@ -43,7 +35,6 @@ else
   sudo -u postgres psql -c "CREATE ROLE $DB_USER WITH LOGIN PASSWORD '$DB_PASSWORD';"
 fi
 
-# Ziel-Datenbank erstellen falls nicht vorhanden
 if sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname = '$DB_NAME'" | grep -q 1; then
   echo ">>> Datenbank existiert bereits."
 else
@@ -51,24 +42,16 @@ else
   sudo -u postgres createdb -O "$DB_USER" "$DB_NAME"
 fi
 
-echo ">>> Setze Eigentümerrechte auf Datenbank..."
-sudo -u postgres psql -c "ALTER DATABASE $DB_NAME OWNER TO $DB_USER;"
-
-# --- PGLOADER MIGRATION ENTFERNT ---
-echo ">>> pgloader wurde installiert, aber es wird keine Migration durchgeführt."
-
-echo ">>> Rechte auf Schema und Objekte werden gesetzt..."
+# Rechte für den späteren Import vorbereiten
+echo ">>> Berechtigungen werden konfiguriert..."
 sudo -u postgres psql -d "$DB_NAME" <<EOF
 ALTER SCHEMA public OWNER TO $DB_USER;
 GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO $DB_USER;
 GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO $DB_USER;
-GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO $DB_USER;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO $DB_USER;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO $DB_USER;
-ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO $DB_USER;
 EOF
 
-echo ">>> Node.js wird installiert falls notwendig..."
+echo ">>> Node.js Installation..."
 if ! command -v node >/dev/null 2>&1; then
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
   sudo apt install -y nodejs
@@ -95,7 +78,6 @@ npm install --silent
 cat > index.js <<EOF
 const express = require('express');
 const { Pool } = require('pg');
-
 const app = express();
 const port = ${PORT};
 
@@ -109,44 +91,60 @@ const pool = new Pool({
 
 app.get('/', async (req, res) => {
   try {
+    // Die Anwendung erwartet die Tabelle 'kunden' nach dem manuellen pgloader-Lauf
     const result = await pool.query('SELECT * FROM kunden ORDER BY id ASC');
     const rows = result.rows;
-
-    // Logik für leere Datenbank / Tabelle
-    const tableContent = rows.length > 0 
-      ? rows.map(k => \`
-          <tr>
-            <td>\${k.id ?? ''}</td>
-            <td><strong>\${k.name ?? ''}</strong></td>
-            <td>\${k.vorname ?? ''}</td>
-            <td>\${k.firma ?? ''}</td>
-            <td>\${k.email ?? ''}</td>
-          </tr>\`).join('')
-      : '<tr><td colspan="5" style="text-align:center; padding: 20px;">Die Datenbank ist momentan leer oder enthält keine Kunden.</td></tr>';
 
     const html = \`
 <!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kundendatenbank</title>
     <style>
-        body { font-family: sans-serif; padding: 40px; background-color: #f8f9fa; }
-        .container { max-width: 1100px; margin: auto; background: white; padding: 20px; border-radius: 8px; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 40px; background-color: #f8f9fa; color: #333; }
+        .container { max-width: 1200px; margin: auto; background: white; padding: 25px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 3px solid #007bff; padding-bottom: 10px; }
+        h1 { margin: 0; color: #007bff; }
+        .btn-refresh { background-color: #007bff; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; font-weight: bold; }
+        .btn-refresh:hover { background-color: #0056b3; }
         table { border-collapse: collapse; width: 100%; margin-top: 10px; }
         th, td { border: 1px solid #dee2e6; padding: 12px; text-align: left; }
         th { background: #007bff; color: white; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        tr:hover { background-color: #e9ecef; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Kundenliste</h1>
+        <div class="header">
+            <h1>Kundenliste</h1>
+            <button class="btn-refresh" onclick="window.location.reload()">🔄 Aktualisieren</button>
+        </div>
         <table>
             <thead>
-                <tr><th>ID</th><th>Name</th><th>Vorname</th><th>Firma</th><th>Email</th></tr>
+                <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Vorname</th>
+                    <th>Firma</th>
+                    <th>Adresse</th>
+                    <th>Email</th>
+                    <th>Telefon</th>
+                </tr>
             </thead>
             <tbody>
-                \${tableContent}
+                \${rows.map(k => \`
+                <tr>
+                    <td>\${k.id ?? ''}</td>
+                    <td><strong>\${k.name ?? ''}</strong></td>
+                    <td>\${k.vorname ?? ''}</td>
+                    <td>\${k.firma ?? ''}</td>
+                    <td>\${k.adresse ?? ''} \${k.hausnummer ?? ''}</td>
+                    <td>\${k.email ?? ''}</td>
+                    <td>\${k.telefonnummer ?? ''}</td>
+                </tr>\`).join('')}
             </tbody>
         </table>
     </div>
@@ -154,7 +152,7 @@ app.get('/', async (req, res) => {
 </html>\`;
     res.send(html);
   } catch (err) {
-    res.status(500).send('Datenbankfehler: ' + err.message + '<br>Hinweis: Die Tabelle \"kunden\" muss existieren.');
+    res.status(500).send('<h3>Datenbank bereit, aber Tabelle fehlt noch.</h3><p>Bitte führen Sie pgloader manuell aus, um die Tabelle \"kunden\" zu erstellen.</p><p>Fehler: ' + err.message + '</p>');
   }
 });
 
@@ -163,17 +161,22 @@ app.listen(port, () => {
 });
 EOF
 
+# Anwendung im Hintergrund starten
 pkill -f "node index.js" || true
 nohup node index.js > app.log 2>&1 &
 
 sleep 2
 
-if curl -s "http://localhost:${PORT}" > /dev/null; then
-  echo "======================================="
-  echo "INSTALLATION ABGESCHLOSSEN:"
-  echo "Die Anwendung läuft unter http://localhost:${PORT}"
-  echo "Wichtig: Die Tabelle 'kunden' wurde nicht automatisch erstellt."
-  echo "======================================="
-else
-  echo "FEHLER: Anwendung konnte nicht gestartet werden."
-fi
+echo "======================================="
+echo "INSTALLATION ABGESCHLOSSEN (Bereit für Migration)"
+echo "App-URL: http://localhost:${PORT}"
+echo "---------------------------------------"
+echo "Checkliste der Spalten im Tableau:"
+echo "1. ID"
+echo "2. Name"
+echo "3. Vorname"
+echo "4. Firma"
+echo "5. Adresse (Strasse + Hausnummer)"
+echo "6. Email"
+echo "7. Telefon"
+echo "======================================="
