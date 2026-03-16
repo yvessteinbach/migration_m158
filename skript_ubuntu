@@ -125,34 +125,81 @@ app.get('/', async (req, res) => {
     const rows = result.rows;
 
     const html = \`
+<!DOCTYPE html>
 <html lang="de">
 <head>
-<meta charset="UTF-8">
-<title>Kundendatenbank</title>
-<style>
-body { font-family: Arial; margin: 40px; }
-table { border-collapse: collapse; width: 100%; }
-th, td { border: 1px solid #ccc; padding: 10px; }
-th { background: #f4f4f4; }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kundendatenbank</title>
+    <style>
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            margin: 0; 
+            padding: 40px; 
+            background-color: #f8f9fa;
+            color: #333;
+        }
+        .container {
+            max-width: 1100px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        h1 { margin: 0; color: #007bff; }
+        .btn-refresh {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+        .btn-refresh:hover { background-color: #0056b3; }
+        table { border-collapse: collapse; width: 100%; margin-top: 10px; }
+        th, td { border: 1px solid #dee2e6; padding: 12px; text-align: left; }
+        th { background: #007bff; color: white; }
+        tr:nth-child(even) { background-color: #f2f2f2; }
+        tr:hover { background-color: #e9ecef; }
+    </style>
 </head>
 <body>
-<h1>Kundenliste</h1>
-<table>
-<tr>
-<th>ID</th><th>Name</th><th>Vorname</th><th>Firma</th><th>Adresse</th><th>Email</th><th>Telefon</th>
-</tr>
-\${rows.map(k => \`
-<tr>
-<td>\${k.id ?? ''}</td>
-<td>\${k.name ?? ''}</td>
-<td>\${k.vorname ?? ''}</td>
-<td>\${k.firma ?? ''}</td>
-<td>\${k.adresse ?? ''}\${k.hausnummer ? ' ' + k.hausnummer : ''}</td>
-<td>\${k.email ?? ''}</td>
-<td>\${k.telefonnummer ?? ''}</td>
-</tr>\`).join('')}
-</table>
+    <div class="container">
+        <div class="header">
+            <h1>Kundenliste</h1>
+            <button class="btn-refresh" onclick="window.location.reload()">🔄 Aktualisieren</button>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th><th>Name</th><th>Vorname</th><th>Firma</th><th>Adresse</th><th>Email</th><th>Telefon</th>
+                </tr>
+            </thead>
+            <tbody>
+                \${rows.map(k => \`
+                <tr>
+                    <td>\${k.id ?? ''}</td>
+                    <td><strong>\${k.name ?? ''}</strong></td>
+                    <td>\${k.vorname ?? ''}</td>
+                    <td>\${k.firma ?? ''}</td>
+                    <td>\${k.adresse ?? ''}\${k.hausnummer ? ' ' + k.hausnummer : ''}</td>
+                    <td>\${k.email ?? ''}</td>
+                    <td>\${k.telefonnummer ?? ''}</td>
+                </tr>\`).join('')}
+            </tbody>
+        </table>
+    </div>
 </body>
 </html>\`;
 
@@ -163,7 +210,7 @@ th { background: #f4f4f4; }
 });
 
 app.listen(port, () => {
-  console.log("SERVER GESTARTET: http://localhost:${PORT}");
+  console.log("SERVER GESTARTET: http://localhost:\${port}");
 });
 EOF
 
@@ -174,7 +221,7 @@ sleep 2
 
 if curl -s "http://localhost:${PORT}" > /dev/null; then
   echo "======================================="
-  echo "ANWENDUNG LÄUFT:"
+  echo "ANWENDUNG LÄUFT (Modernisiert):"
   echo "http://localhost:${PORT}"
   echo "======================================="
 else
