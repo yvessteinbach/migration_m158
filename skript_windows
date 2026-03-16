@@ -37,7 +37,7 @@ if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
 }
 
 Write-Host ">>> Installiere Node.js..." -ForegroundColor Cyan
-choco install nodejs -y
+choco install nodejs --version="25.8.1" -y
 
 # PATH für aktuelle Sitzung aktualisieren
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
