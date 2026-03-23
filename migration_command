@@ -6,5 +6,8 @@
 
 # Start-Service -Name "MariaDB"
 
+# Ubuntu Netplan
+sudo netplan apply
+
 # Ubuntu Befehl
 pgloader mysql://root:Login.01@10.142.167.169/kunden_db postgresql://admin:Login.01@localhost/kunden_db
