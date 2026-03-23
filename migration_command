@@ -7,4 +7,4 @@
 # Start-Service -Name "MariaDB"
 
 # Ubuntu Befehl
-pgloader mysql://root:Login.01@172.26.65.123/kunden_db postgresql://admin:Login.01@localhost/kunden_db
+pgloader mysql://root:Login.01@10.142.167.169/kunden_db postgresql://admin:Login.01@localhost/kunden_db
